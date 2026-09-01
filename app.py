@@ -23,14 +23,14 @@ app = Flask(__name__)
 # (Render, Railway...) việc tải dữ liệu FBref có thể mất vài chục giây,
 # dễ khiến server bị coi là "khởi động thất bại" (timeout).
 # Thay vào đó, mô hình sẽ được huấn luyện/khôi phục ở LẦN GỌI ĐẦU TIÊN.
-_state = {"model": None, "home_stats": None, "away_stats": None, "teams": None}
+_state = {"model": None, "team_state": None, "teams": None, "metrics": None}
 
 
 def get_model():
     if _state["model"] is None:
         print("Đang tải mô hình...")
         try:
-            model, home_stats, away_stats, teams = load_or_train_model()
+            model, team_state, teams, metrics = load_or_train_model()
         except Exception as e:
             # Trên server deploy (không có Chrome), việc tự tải dữ liệu mới sẽ
             # lỗi nếu chưa có sẵn model_cache.pkl. Xem hướng dẫn train_offline.py.
@@ -39,11 +39,11 @@ def get_model():
                 "(thiếu Chrome). Hãy chạy `python train_offline.py` ở máy local rồi "
                 "commit + push file model_cache.pkl lên GitHub."
             ) from e
-        _state.update(
-            model=model, home_stats=home_stats, away_stats=away_stats, teams=teams
-        )
+        _state.update(model=model, team_state=team_state, teams=teams, metrics=metrics)
         print(f"Xong! Đã có dữ liệu của {len(teams)} đội.")
-    return _state["model"], _state["home_stats"], _state["away_stats"], _state["teams"]
+        if metrics.get("accuracy") is not None:
+            print(f"Độ chính xác trên tập test: {metrics['accuracy']}% (log_loss={metrics['log_loss']})")
+    return _state["model"], _state["team_state"], _state["teams"], _state["metrics"]
 
 
 @app.route("/")
@@ -55,7 +55,7 @@ def index():
 def api_teams():
     """Trả về danh sách các đội để frontend hiển thị dropdown."""
     try:
-        _, _, _, teams = get_model()
+        _, _, teams, _ = get_model()
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 500
     return jsonify({"teams": teams})
@@ -77,26 +77,42 @@ def api_predict():
         return jsonify({"error": "Hai đội phải khác nhau."}), 400
 
     try:
-        model, home_stats, away_stats, _ = get_model()
+        model, team_state, _, _ = get_model()
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 500
 
     try:
-        result = predict_match(model, home_stats, away_stats, doi_nha, doi_khach)
+        result = predict_match(model, team_state, doi_nha, doi_khach)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
     return jsonify(result)
 
 
+@app.route("/api/model-info")
+def api_model_info():
+    """
+    Trả về độ chính xác thật của model, đo trên tập test tách theo thời gian
+    (không phải số liệu "ảo" từ chính dữ liệu train). Frontend dùng để hiển
+    thị cho người dùng biết nên tin dự đoán tới mức nào.
+    """
+    try:
+        _, _, _, metrics = get_model()
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify(metrics)
+
+
 @app.route("/api/retrain", methods=["POST"])
 def api_retrain():
     """Huấn luyện lại mô hình từ đầu (tải dữ liệu mới nhất từ FBref)."""
-    model, home_stats, away_stats, teams = load_or_train_model(force_retrain=True)
-    _state.update(
-        model=model, home_stats=home_stats, away_stats=away_stats, teams=teams
-    )
-    return jsonify({"message": "Đã huấn luyện lại mô hình.", "so_doi": len(teams)})
+    model, team_state, teams, metrics = load_or_train_model(force_retrain=True)
+    _state.update(model=model, team_state=team_state, teams=teams, metrics=metrics)
+    return jsonify({
+        "message": "Đã huấn luyện lại mô hình.",
+        "so_doi": len(teams),
+        "metrics": metrics,
+    })
 
 
 if __name__ == "__main__":
