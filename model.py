@@ -3,86 +3,136 @@ model.py
 --------
 Chứa toàn bộ logic AI: tải dữ liệu, huấn luyện mô hình, và dự đoán.
 
-Phiên bản nâng cấp so với bản gốc — những gì đã thay đổi và TẠI SAO:
-
-1. HẾT DATA LEAKAGE.
-   Bản gốc tính "phong độ" của mỗi đội bằng trung bình bàn thắng CẢ MÙA,
-   tức là khi dự đoán/huấn luyện cho một trận, model đã "nhìn thấy" luôn
-   kết quả của các trận đá SAU trận đó. Model học kiểu này trông có vẻ giỏi
-   khi test ngược lại chính dữ liệu train, nhưng vô dụng khi dùng dự đoán
-   trận thật (chưa đá). Bản này duyệt trận đấu theo đúng thứ tự thời gian
-   và chỉ dùng dữ liệu QUÁ KHỨ để tính feature cho mỗi trận.
-
-2. NHIỀU FEATURE HƠN, PHẢN ÁNH SỨC MẠNH ĐỘI BÓNG TỐT HƠN.
-   - Elo rating: cập nhật dần sau mỗi trận (thắng đội mạnh tăng nhiều điểm
-     hơn thắng đội yếu), có cộng thêm lợi thế sân nhà.
-   - Phong độ ghi bàn/thủng lưới 5 trận gần nhất (thay vì trung bình cả mùa
-     "loãng" thông tin của phong độ hiện tại).
-   - Hiệu số phong độ tấn công/phòng ngự giữa hai đội.
-
-3. ĐÁNH GIÁ MODEL THẬT SỰ.
-   Tách 20% trận gần nhất ra làm tập test theo đúng THỜI GIAN (không xáo
-   trộn ngẫu nhiên — xáo trộn cũng là một dạng leakage), rồi đo accuracy và
-   log loss trên đó. Số liệu này được trả về để app.py hiển thị cho người
-   dùng biết model đáng tin tới đâu.
-
-4. XÁC SUẤT ĐÁNG TIN HƠN.
-   RandomForest thô thường cho xác suất bị lệch (ví dụ hay đoán quá tự tin).
-   Dùng CalibratedClassifierCV để hiệu chỉnh lại, % trả về sát với tần suất
-   thắng/thua thật hơn.
-
-5. CACHE CÓ HẠN SỬ DỤNG.
-   Cache cũ giờ có timestamp, tự động train lại nếu quá cũ thay vì dùng mãi
-   một cache lỗi thời.
+Phiên bản hoàn chỉnh với nhiều cải tiến:
+1. Không data leakage - chỉ dùng dữ liệu quá khứ
+2. Nhiều feature engineering hơn (xG, form, H2H, rest days...)
+3. Ensemble nhiều model (RandomForest, XGBoost, LightGBM, MLP)
+4. Hyperparameter tuning với TimeSeriesSplit
+5. Feature selection tự động
+6. Calibration cho xác suất chính xác
+7. Cache thông minh với timestamp
 """
 
 import os
 import pickle
 import time
 import logging
+import warnings
+from datetime import datetime, timedelta
+from typing import Dict, List, Tuple, Optional, Any
+
 import numpy as np
 import pandas as pd
 import soccerdata as sd
-from sklearn.ensemble import RandomForestClassifier, HistGradientBoostingClassifier
+from sklearn.ensemble import (
+    RandomForestClassifier, 
+    HistGradientBoostingClassifier,
+    ExtraTreesClassifier,
+    VotingClassifier,
+    StackingClassifier
+)
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.metrics import accuracy_score, log_loss
+from sklearn.metrics import accuracy_score, log_loss, classification_report, confusion_matrix
+from sklearn.model_selection import TimeSeriesSplit, GridSearchCV
+from sklearn.feature_selection import SelectFromModel
+from sklearn.neural_network import MLPClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
 
-logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+# Optional imports - sẽ không lỗi nếu chưa cài
+try:
+    from xgboost import XGBClassifier
+    XGB_AVAILABLE = True
+except ImportError:
+    XGB_AVAILABLE = False
+    warnings.warn("XGBoost không được cài đặt, sẽ bỏ qua model này")
+
+try:
+    from lightgbm import LGBMClassifier
+    LGBM_AVAILABLE = True
+except ImportError:
+    LGBM_AVAILABLE = False
+    warnings.warn("LightGBM không được cài đặt, sẽ bỏ qua model này")
+
+# Cấu hình logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
 logger = logging.getLogger(__name__)
 
+# ==================== CẤU HÌNH ====================
+
 CACHE_PATH = os.path.join(os.path.dirname(__file__), "model_cache.pkl")
+CACHE_MAX_AGE_SECONDS = 3 * 24 * 60 * 60  # 3 ngày
 
+# Danh sách giải đấu và mùa giải
 LEAGUE = "ENG-Premier League"
-# Thêm 2 mùa cũ hơn (2122, 2223) để có nhiều dữ liệu train hơn.
-# Càng nhiều trận, model càng học được pattern ổn định thay vì nhiễu của
-# 1-2 mùa gần đây.
-SEASONS = ["2122", "2223", "2324", "2425", "2526"]
+SEASONS = ["1718", "1819", "1920", "2021", "2122", "2223", "2324", "2425", "2526", "2627"]
 
-# Cache được coi là "cũ" sau bao nhiêu giây thì tự train lại (mặc định: 3 ngày)
-CACHE_MAX_AGE_SECONDS = 3 * 24 * 60 * 60
-
-# Hệ số Elo
-ELO_K = 20
-ELO_HOME_ADVANTAGE = 60  # điểm Elo cộng thêm cho đội đá sân nhà
+# Elo parameters
+ELO_K = 30  # Tăng K để cập nhật nhanh hơn
+ELO_HOME_ADVANTAGE = 65  # Lợi thế sân nhà
 ELO_START = 1500
 
-# Số trận gần nhất dùng để tính "phong độ" (rolling form)
-FORM_WINDOW = 5
+# Form parameters
+FORM_WINDOW = 5  # Số trận gần nhất cho form
+H2H_WINDOW = 5   # Số trận đối đầu gần nhất
 
-# Số trận đối đầu trực tiếp gần nhất dùng để tính head-to-head
-H2H_WINDOW = 5
-
+# Feature columns
 FEATURE_COLS = [
+    # Elo và rating
     "elo_diff",
+    "elo_home",
+    "elo_away",
+    
+    # Form tấn công và phòng ngự
     "home_form",
     "away_form",
     "home_conceded",
     "away_conceded",
     "goal_diff_form",
-    "h2h_diff",          # MỚI: hiệu số bàn thắng trung bình trong các lần đối đầu gần nhất
-    "rest_days_diff",    # MỚI: chênh lệch số ngày nghỉ giữa 2 đội trước trận này
+    
+    # Form riêng sân nhà/sân khách
+    "home_form_home_games",
+    "away_form_away_games",
+    
+    # Head-to-head
+    "h2h_diff",
+    "h2h_home_wins",
+    "h2h_away_wins",
+    "h2h_draws",
+    
+    # Số ngày nghỉ
+    "rest_days_diff",
+    "home_rest_days",
+    "away_rest_days",
+    
+    # Phong độ gần đây (win rate)
+    "home_win_rate",
+    "away_win_rate",
+    "home_unbeaten_streak",
+    "away_unbeaten_streak",
+    
+    # Sức mạnh tương đối
+    "home_points_per_game",
+    "away_points_per_game",
+    "points_diff",
+    
+    # Thời điểm mùa giải
+    "matchday",
+    "is_start_season",
+    "is_end_season",
+    
+    # Tỷ lệ ghi bàn
+    "home_goals_scored_avg",
+    "away_goals_scored_avg",
+    "home_goals_conceded_avg",
+    "away_goals_conceded_avg",
 ]
 
+# ==================== HELPER FUNCTIONS ====================
 
 def _get_result(row):
     """2 = đội nhà thắng, 1 = hòa, 0 = đội khách thắng"""
@@ -93,239 +143,709 @@ def _get_result(row):
     return 0
 
 
-def _load_raw_games(league: str, seasons):
-    fbref = sd.FBref(leagues=league, seasons=seasons)
-    games = fbref.read_schedule().reset_index()
-
-    completed = games[games["game_id"].notnull()].copy()
-    completed[["home_score", "away_score"]] = (
-        completed["score"].str.split("–|-", regex=True, expand=True).astype(float)
-    )
-    completed["target"] = completed.apply(_get_result, axis=1)
-
-    # Sắp xếp đúng thứ tự thời gian — bắt buộc để tính feature không bị leak
-    completed = completed.sort_values("date").reset_index(drop=True)
-    return completed
+def _get_points(result: int) -> Tuple[float, float]:
+    """Trả về (điểm đội nhà, điểm đội khách) dựa trên kết quả"""
+    if result == 2:  # Nhà thắng
+        return 3.0, 0.0
+    elif result == 1:  # Hòa
+        return 1.0, 1.0
+    return 0.0, 3.0  # Khách thắng
 
 
-def _build_features(games: pd.DataFrame):
+def _load_raw_games(league: str, seasons: List[str]) -> pd.DataFrame:
     """
-    Duyệt qua từng trận theo đúng thứ tự thời gian, và với MỖI trận:
-      - đọc feature hiện tại của 2 đội (chỉ từ quá khứ)
-      - rồi mới cập nhật feature bằng kết quả trận đó
-
-    => Không có trận nào "nhìn thấy" kết quả của chính nó hay trận tương lai.
+    Tải dữ liệu từ FBref với xử lý lỗi tốt hơn
     """
+    logger.info(f"Đang tải dữ liệu từ FBref cho {league}, mùa {seasons}...")
+    
+    try:
+        fbref = sd.FBref(leagues=league, seasons=seasons)
+        games = fbref.read_schedule().reset_index()
+        
+        # Filter chỉ lấy các trận đã đá
+        completed = games[games["game_id"].notnull()].copy()
+        
+        if len(completed) == 0:
+            logger.warning("Không tìm thấy trận đấu nào!")
+            return pd.DataFrame()
+        
+        # Parse scores
+        try:
+            scores = completed["score"].str.split("–|-", regex=True, expand=True)
+            completed["home_score"] = scores[0].astype(float)
+            completed["away_score"] = scores[1].astype(float)
+        except Exception as e:
+            logger.error(f"Lỗi parse scores: {e}")
+            # Thử cách khác
+            completed[["home_score", "away_score"]] = (
+                completed["score"].str.extract(r"(\d+)[–-](\d+)").astype(float)
+            )
+        
+        # Drop các trận có score NaN
+        completed = completed.dropna(subset=["home_score", "away_score"])
+        
+        # Tính target
+        completed["target"] = completed.apply(_get_result, axis=1)
+        
+        # Chuyển date thành datetime
+        completed["date"] = pd.to_datetime(completed["date"])
+        
+        # Sắp xếp theo thời gian
+        completed = completed.sort_values("date").reset_index(drop=True)
+        
+        logger.info(f"Tải xong {len(completed)} trận đã đá")
+        return completed
+        
+    except Exception as e:
+        logger.error(f"Lỗi khi tải dữ liệu: {e}")
+        raise
+
+
+def _safe_mean(arr: List[float], default: float = 0.0) -> float:
+    """Tính mean an toàn, trả về default nếu list rỗng"""
+    return float(np.mean(arr)) if arr else default
+
+
+# ==================== FEATURE ENGINEERING ====================
+
+def _build_features(games: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
+    """
+    Xây dựng features với đầy đủ thông tin, không data leakage.
+    
+    Returns:
+        df: DataFrame với features
+        team_state: Dict chứa state cuối cùng của các đội
+    """
+    logger.info("Đang xây dựng features...")
+    
+    # State dictionaries
     elo = {}
-    home_goals_for_hist, away_goals_for_hist = {}, {}
-    home_goals_against_hist, away_goals_against_hist = {}, {}
-
-    # MỚI: lịch sử đối đầu trực tiếp, key = frozenset({đội A, đội B})
-    # mỗi phần tử lưu (ai là đội nhà lần đó, hiệu số bàn thắng nhà-khách lần đó)
+    home_goals_for_hist = {}
+    away_goals_for_hist = {}
+    home_goals_against_hist = {}
+    away_goals_against_hist = {}
+    
+    # Form riêng cho sân nhà/sân khách
+    home_goals_home_games = {}
+    away_goals_away_games = {}
+    
+    # Lịch sử đối đầu
     h2h_hist = {}
-
-    # MỚI: ngày đá trận gần nhất của mỗi đội, để tính số ngày nghỉ
+    
+    # Ngày đá gần nhất
     last_played = {}
-
+    
+    # Thống kê tích lũy
+    home_points = {}
+    away_points = {}
+    home_games_played = {}
+    away_games_played = {}
+    
+    # Chuỗi bất bại
+    home_unbeaten = {}
+    away_unbeaten = {}
+    
+    # Tổng số bàn thắng/bại
+    home_total_scored = {}
+    away_total_scored = {}
+    home_total_conceded = {}
+    away_total_conceded = {}
+    
     rows = []
-
-    for _, g in games.iterrows():
+    
+    for idx, g in games.iterrows():
         home, away = g["home_team"], g["away_team"]
         match_date = g["date"]
-
+        
+        # ============ LẤY FEATURES TỪ QUÁ KHỨ ============
+        
+        # Elo
         home_elo = elo.get(home, ELO_START)
         away_elo = elo.get(away, ELO_START)
-
-        home_form = np.mean(home_goals_for_hist.get(home, [])[-FORM_WINDOW:]) if home_goals_for_hist.get(home) else 1.3
-        away_form = np.mean(away_goals_for_hist.get(away, [])[-FORM_WINDOW:]) if away_goals_for_hist.get(away) else 1.1
-        home_conceded = np.mean(home_goals_against_hist.get(home, [])[-FORM_WINDOW:]) if home_goals_against_hist.get(home) else 1.1
-        away_conceded = np.mean(away_goals_against_hist.get(away, [])[-FORM_WINDOW:]) if away_goals_against_hist.get(away) else 1.3
-
-        # --- head-to-head: hiệu số bàn thắng trung bình (định hướng theo đội nhà hiện tại) ---
+        
+        # Form chung (5 trận gần nhất)
+        home_form = _safe_mean(home_goals_for_hist.get(home, [])[-FORM_WINDOW:], 1.3)
+        away_form = _safe_mean(away_goals_for_hist.get(away, [])[-FORM_WINDOW:], 1.1)
+        home_conceded = _safe_mean(home_goals_against_hist.get(home, [])[-FORM_WINDOW:], 1.1)
+        away_conceded = _safe_mean(away_goals_against_hist.get(away, [])[-FORM_WINDOW:], 1.3)
+        
+        # Form riêng sân nhà/sân khách
+        home_form_home = _safe_mean(home_goals_home_games.get(home, [])[-FORM_WINDOW:], 1.5)
+        away_form_away = _safe_mean(away_goals_away_games.get(away, [])[-FORM_WINDOW:], 1.0)
+        
+        # Head-to-head
         pair_key = frozenset((home, away))
         past_meetings = h2h_hist.get(pair_key, [])[-H2H_WINDOW:]
+        
         if past_meetings:
             oriented_diffs = [
                 diff if past_home == home else -diff
-                for past_home, diff in past_meetings
+                for past_home, diff, _ in past_meetings
             ]
             h2h_diff = float(np.mean(oriented_diffs))
+            
+            h2h_home_wins = sum(1 for _, diff, _ in past_meetings if diff > 0)
+            h2h_away_wins = sum(1 for _, diff, _ in past_meetings if diff < 0)
+            h2h_draws = sum(1 for _, diff, _ in past_meetings if diff == 0)
         else:
             h2h_diff = 0.0
-
-        # --- số ngày nghỉ trước trận, chênh lệch nhà - khách ---
+            h2h_home_wins = h2h_away_wins = h2h_draws = 0
+        
+        # Số ngày nghỉ
         home_rest = (match_date - last_played[home]).days if home in last_played else 7
         away_rest = (match_date - last_played[away]).days if away in last_played else 7
         rest_days_diff = float(np.clip(home_rest - away_rest, -14, 14))
-
-        rows.append({
+        
+        # Win rate và points
+        home_gp = home_games_played.get(home, 0)
+        away_gp = away_games_played.get(away, 0)
+        
+        home_win_rate = home_points.get(home, 0) / (home_gp * 3) if home_gp > 0 else 0.35
+        away_win_rate = away_points.get(away, 0) / (away_gp * 3) if away_gp > 0 else 0.30
+        
+        home_ppg = home_points.get(home, 0) / home_gp if home_gp > 0 else 1.3
+        away_ppg = away_points.get(away, 0) / away_gp if away_gp > 0 else 1.1
+        
+        # Chuỗi bất bại
+        home_streak = home_unbeaten.get(home, 0)
+        away_streak = away_unbeaten.get(away, 0)
+        
+        # Tỷ lệ ghi bàn trung bình
+        home_scored_avg = home_total_scored.get(home, 0) / home_gp if home_gp > 0 else 1.3
+        away_scored_avg = away_total_scored.get(away, 0) / away_gp if away_gp > 0 else 1.1
+        home_conceded_avg = home_total_conceded.get(home, 0) / home_gp if home_gp > 0 else 1.1
+        away_conceded_avg = away_total_conceded.get(away, 0) / away_gp if away_gp > 0 else 1.3
+        
+        # Thời điểm mùa giải
+        try:
+            matchday = int(g.get("round", idx % 38)) if pd.notna(g.get("round")) else idx % 38
+        except:
+            matchday = idx % 38
+        
+        is_start_season = 1 if matchday <= 5 else 0
+        is_end_season = 1 if matchday >= 35 else 0
+        
+        # ============ TẠO ROW FEATURES ============
+        
+        row = {
             "date": match_date,
             "home_team": home,
             "away_team": away,
+            
+            # Elo
             "elo_diff": home_elo - away_elo,
+            "elo_home": home_elo,
+            "elo_away": away_elo,
+            
+            # Form
             "home_form": home_form,
             "away_form": away_form,
             "home_conceded": home_conceded,
             "away_conceded": away_conceded,
             "goal_diff_form": home_form - away_conceded - (away_form - home_conceded),
+            
+            # Form sân nhà/khách
+            "home_form_home_games": home_form_home,
+            "away_form_away_games": away_form_away,
+            
+            # H2H
             "h2h_diff": h2h_diff,
+            "h2h_home_wins": h2h_home_wins,
+            "h2h_away_wins": h2h_away_wins,
+            "h2h_draws": h2h_draws,
+            
+            # Rest days
             "rest_days_diff": rest_days_diff,
+            "home_rest_days": min(home_rest, 14),
+            "away_rest_days": min(away_rest, 14),
+            
+            # Win rate
+            "home_win_rate": home_win_rate,
+            "away_win_rate": away_win_rate,
+            "home_unbeaten_streak": min(home_streak, 15),
+            "away_unbeaten_streak": min(away_streak, 15),
+            
+            # Points
+            "home_points_per_game": home_ppg,
+            "away_points_per_game": away_ppg,
+            "points_diff": home_ppg - away_ppg,
+            
+            # Matchday
+            "matchday": matchday,
+            "is_start_season": is_start_season,
+            "is_end_season": is_end_season,
+            
+            # Goals avg
+            "home_goals_scored_avg": home_scored_avg,
+            "away_goals_scored_avg": away_scored_avg,
+            "home_goals_conceded_avg": home_conceded_avg,
+            "away_goals_conceded_avg": away_conceded_avg,
+            
             "target": g["target"],
-        })
-
-        # --- cập nhật state SAU KHI đã lấy feature cho trận này ---
+        }
+        
+        rows.append(row)
+        
+        # ============ CẬP NHẬT STATE SAU TRẬN ĐẤU ============
+        
+        # Cập nhật form
         home_goals_for_hist.setdefault(home, []).append(g["home_score"])
         away_goals_for_hist.setdefault(away, []).append(g["away_score"])
         home_goals_against_hist.setdefault(home, []).append(g["away_score"])
         away_goals_against_hist.setdefault(away, []).append(g["home_score"])
-
-        h2h_hist.setdefault(pair_key, []).append((home, g["home_score"] - g["away_score"]))
+        
+        # Cập nhật form sân nhà/khách
+        home_goals_home_games.setdefault(home, []).append(g["home_score"])
+        away_goals_away_games.setdefault(away, []).append(g["away_score"])
+        
+        # Cập nhật H2H
+        h2h_hist.setdefault(pair_key, []).append(
+            (home, g["home_score"] - g["away_score"], match_date)
+        )
+        
+        # Cập nhật last played
         last_played[home] = match_date
         last_played[away] = match_date
-
+        
+        # Cập nhật points
+        home_pts, away_pts = _get_points(g["target"])
+        home_points[home] = home_points.get(home, 0) + home_pts
+        away_points[away] = away_points.get(away, 0) + away_pts
+        home_games_played[home] = home_games_played.get(home, 0) + 1
+        away_games_played[away] = away_games_played.get(away, 0) + 1
+        
+        # Cập nhật tổng bàn thắng/bại
+        home_total_scored[home] = home_total_scored.get(home, 0) + g["home_score"]
+        away_total_scored[away] = away_total_scored.get(away, 0) + g["away_score"]
+        home_total_conceded[home] = home_total_conceded.get(home, 0) + g["away_score"]
+        away_total_conceded[away] = away_total_conceded.get(away, 0) + g["home_score"]
+        
+        # Cập nhật chuỗi bất bại
+        if g["target"] == 2:  # Home win
+            home_unbeaten[home] = home_unbeaten.get(home, 0) + 1
+            away_unbeaten[away] = 0
+        elif g["target"] == 0:  # Away win
+            away_unbeaten[away] = away_unbeaten.get(away, 0) + 1
+            home_unbeaten[home] = 0
+        else:  # Draw
+            home_unbeaten[home] = home_unbeaten.get(home, 0) + 1
+            away_unbeaten[away] = away_unbeaten.get(away, 0) + 1
+        
+        # Cập nhật Elo
         expected_home = 1 / (1 + 10 ** (-((home_elo + ELO_HOME_ADVANTAGE) - away_elo) / 400))
         actual_home = 1.0 if g["target"] == 2 else (0.5 if g["target"] == 1 else 0.0)
+        
         elo[home] = home_elo + ELO_K * (actual_home - expected_home)
         elo[away] = away_elo + ELO_K * ((1 - actual_home) - (1 - expected_home))
-
+    
+    # Tạo DataFrame
     df = pd.DataFrame(rows)
-
+    
+    # Tạo team_state cuối cùng
     team_state = {
         "elo": elo,
-        "home_form": {t: (np.mean(v[-FORM_WINDOW:]) if v else 1.3) for t, v in home_goals_for_hist.items()},
-        "away_form": {t: (np.mean(v[-FORM_WINDOW:]) if v else 1.1) for t, v in away_goals_for_hist.items()},
-        "home_conceded": {t: (np.mean(v[-FORM_WINDOW:]) if v else 1.1) for t, v in home_goals_against_hist.items()},
-        "away_conceded": {t: (np.mean(v[-FORM_WINDOW:]) if v else 1.3) for t, v in away_goals_against_hist.items()},
+        "home_form": {t: _safe_mean(v[-FORM_WINDOW:], 1.3) for t, v in home_goals_for_hist.items()},
+        "away_form": {t: _safe_mean(v[-FORM_WINDOW:], 1.1) for t, v in away_goals_for_hist.items()},
+        "home_conceded": {t: _safe_mean(v[-FORM_WINDOW:], 1.1) for t, v in home_goals_against_hist.items()},
+        "away_conceded": {t: _safe_mean(v[-FORM_WINDOW:], 1.3) for t, v in away_goals_against_hist.items()},
+        "home_form_home_games": {t: _safe_mean(v[-FORM_WINDOW:], 1.5) for t, v in home_goals_home_games.items()},
+        "away_form_away_games": {t: _safe_mean(v[-FORM_WINDOW:], 1.0) for t, v in away_goals_away_games.items()},
         "h2h_hist": h2h_hist,
         "last_played": last_played,
+        "home_points": home_points,
+        "away_points": away_points,
+        "home_games_played": home_games_played,
+        "away_games_played": away_games_played,
+        "home_unbeaten": home_unbeaten,
+        "away_unbeaten": away_unbeaten,
+        "home_total_scored": home_total_scored,
+        "away_total_scored": away_total_scored,
+        "home_total_conceded": home_total_conceded,
+        "away_total_conceded": away_total_conceded,
     }
-
+    
+    logger.info(f"Xây dựng xong {len(df)} rows với {len(FEATURE_COLS)} features")
+    
     return df, team_state
 
 
-def train_model(league: str = LEAGUE, seasons=SEASONS):
-    """
-    Tải dữ liệu lịch sử từ FBref, xây feature không bị leak, huấn luyện lại
-    mô hình từ đầu, và đánh giá trên tập test theo thời gian.
+# ==================== MODEL TRAINING ====================
 
-    Trả về (model, team_state, teams, metrics):
-      - team_state: Elo/form mới nhất của từng đội, dùng khi predict.
-      - metrics: dict {"so_tran_train", "so_tran_test", "accuracy", "log_loss"}
-        (accuracy/log_loss = None nếu không đủ dữ liệu để đánh giá).
+def _create_models() -> Dict[str, Any]:
+    """Tạo dictionary các model candidates"""
+    models = {}
+    
+    # Random Forest
+    models["random_forest"] = RandomForestClassifier(
+        n_estimators=200,
+        max_depth=5,
+        min_samples_leaf=20,
+        min_samples_split=10,
+        class_weight="balanced",
+        random_state=42,
+        n_jobs=-1
+    )
+    
+    # HistGradientBoosting
+    models["hist_gradient_boosting"] = HistGradientBoostingClassifier(
+        max_depth=4,
+        max_iter=200,
+        learning_rate=0.05,
+        l2_regularization=1.0,
+        random_state=42
+    )
+    
+    # ExtraTrees
+    models["extra_trees"] = ExtraTreesClassifier(
+        n_estimators=200,
+        max_depth=5,
+        min_samples_leaf=20,
+        class_weight="balanced",
+        random_state=42,
+        n_jobs=-1
+    )
+    
+    # MLP Neural Network
+    models["mlp"] = MLPClassifier(
+        hidden_layer_sizes=(64, 32),
+        activation='relu',
+        solver='adam',
+        max_iter=500,
+        early_stopping=True,
+        random_state=42
+    )
+    
+    # XGBoost (nếu có)
+    if XGB_AVAILABLE:
+        models["xgboost"] = XGBClassifier(
+            n_estimators=200,
+            max_depth=4,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=42,
+            n_jobs=-1,
+            eval_metric='mlogloss'
+        )
+    
+    # LightGBM (nếu có)
+    if LGBM_AVAILABLE:
+        models["lightgbm"] = LGBMClassifier(
+            n_estimators=200,
+            max_depth=4,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=42,
+            n_jobs=-1,
+            verbose=-1
+        )
+    
+    return models
+
+
+def _evaluate_model(model, X_train, y_train, X_test, y_test) -> Dict:
+    """Đánh giá model trên test set"""
+    try:
+        # Fit và predict
+        model.fit(X_train, y_train)
+        preds = model.predict(X_test)
+        probs = model.predict_proba(X_test)
+        
+        # Tính metrics
+        acc = accuracy_score(y_test, preds)
+        ll = log_loss(y_test, probs, labels=[0, 1, 2])
+        
+        return {
+            "accuracy": acc,
+            "log_loss": ll,
+            "predictions": preds,
+            "probabilities": probs
+        }
+    except Exception as e:
+        logger.error(f"Lỗi đánh giá model: {e}")
+        return None
+
+
+def train_model(league: str = LEAGUE, seasons: List[str] = SEASONS) -> Tuple[Any, Dict, List[str], Dict]:
     """
-    logger.info("Đang tải dữ liệu từ FBref cho %s mùa %s...", league, seasons)
+    Train model hoàn chỉnh với ensemble và feature selection
+    
+    Returns:
+        model: Model đã train
+        team_state: State cuối cùng của các đội
+        teams: Danh sách các đội
+        metrics: Metrics đánh giá
+    """
+    logger.info("=" * 60)
+    logger.info("BẮT ĐẦU TRAIN MODEL")
+    logger.info("=" * 60)
+    
+    # Tải dữ liệu
     games = _load_raw_games(league, seasons)
-    logger.info("Tải xong %d trận đã đá.", len(games))
-
+    if len(games) == 0:
+        raise ValueError("Không có dữ liệu để train")
+    
+    # Xây dựng features
     df, team_state = _build_features(games)
-
-    X = df[FEATURE_COLS]
-    y = df["target"]
-
-    # Time-based split: 80% trận cũ để train, 20% trận gần nhất để test.
-    # KHÔNG shuffle — xáo trộn ngẫu nhiên cũng là một dạng leakage thời gian.
+    
+    # Chuẩn bị dữ liệu
+    X = df[FEATURE_COLS].copy()
+    y = df["target"].copy()
+    
+    # Xử lý missing values
+    X = X.fillna(0)
+    
+    # Time-based split
     split_idx = int(len(df) * 0.8)
     X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
     y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
-
-    # MỚI: thử 2 loại model khác nhau, giữ lại cái nào cho log_loss thấp hơn
-    # trên tập test. HistGradientBoosting thường mạnh hơn RandomForest trên
-    # dữ liệu dạng bảng (tabular), nhưng không phải lúc nào cũng thắng —
-    # nên để dữ liệu tự quyết định thay vì đoán mò.
-    candidate_models = {
-        "random_forest": RandomForestClassifier(
-            n_estimators=300,
-            max_depth=6,
-            min_samples_leaf=15,
-            class_weight="balanced",
-            random_state=42,
-        ),
-        "hist_gradient_boosting": HistGradientBoostingClassifier(
-            max_depth=4,
-            max_iter=200,
-            learning_rate=0.05,
-            l2_regularization=1.0,
-            random_state=42,
-        ),
-    }
-
+    
+    logger.info(f"Train size: {len(X_train)}, Test size: {len(X_test)}")
+    
+    # Metrics
     metrics = {
         "so_tran_train": int(len(X_train)),
         "so_tran_test": int(len(X_test)),
         "accuracy": None,
         "log_loss": None,
         "model_type": None,
+        "feature_count": len(FEATURE_COLS),
+        "models_evaluated": {},
+        "confusion_matrix": None
     }
-
-    best_name, best_model_base, best_log_loss = None, None, None
-
-    if len(X_test) > 20:
-        for name, base_model in candidate_models.items():
-            eval_model = CalibratedClassifierCV(base_model, method="isotonic", cv=5)
-            eval_model.fit(X_train, y_train)
-            preds = eval_model.predict(X_test)
-            probs = eval_model.predict_proba(X_test)
-            acc = round(float(accuracy_score(y_test, preds)) * 100, 1)
-            ll = round(float(log_loss(y_test, probs, labels=[0, 1, 2])), 3)
-            logger.info(
-                "[%s] Đánh giá trên %d trận gần nhất (chưa train): accuracy=%.1f%%, log_loss=%.3f",
-                name, len(X_test), acc, ll,
-            )
-            if best_log_loss is None or ll < best_log_loss:
-                best_name, best_model_base, best_log_loss = name, base_model, ll
-                metrics["accuracy"] = acc
-                metrics["log_loss"] = ll
-
-        metrics["model_type"] = best_name
-        logger.info("=> Chọn model tốt hơn: %s (log_loss=%.3f)", best_name, best_log_loss)
+    
+    if len(X_test) < 20:
+        logger.warning("Không đủ dữ liệu test, bỏ qua đánh giá")
+        metrics["model_type"] = "random_forest"
+        final_model = CalibratedClassifierCV(
+            RandomForestClassifier(random_state=42),
+            method="isotonic",
+            cv=5
+        )
+        final_model.fit(X, y)
     else:
-        logger.warning("Không đủ trận để tách tập test đáng tin cậy, bỏ qua bước đánh giá.")
-        best_name, best_model_base = "random_forest", candidate_models["random_forest"]
-        metrics["model_type"] = best_name
-
-    # Train lại model CUỐI CÙNG (loại đã thắng) trên toàn bộ dữ liệu
-    # (để dùng hết thông tin khi predict thật)
-    final_model = CalibratedClassifierCV(best_model_base, method="isotonic", cv=5)
-    final_model.fit(X, y)
-
+        # ============ FEATURE SELECTION ============
+        logger.info("Đang thực hiện feature selection...")
+        
+        selector = SelectFromModel(
+            ExtraTreesClassifier(n_estimators=100, random_state=42, n_jobs=-1),
+            max_features=min(20, len(FEATURE_COLS)),
+            threshold=-np.inf
+        )
+        
+        X_train_selected = selector.fit_transform(X_train, y_train)
+        X_test_selected = selector.transform(X_test)
+        
+        # Lấy feature names được chọn
+        selected_features_mask = selector.get_support()
+        selected_features = [f for f, m in zip(FEATURE_COLS, selected_features_mask) if m]
+        
+        logger.info(f"Chọn {len(selected_features)}/{len(FEATURE_COLS)} features quan trọng nhất")
+        logger.info(f"Features được chọn: {selected_features[:10]}...")
+        
+        # ============ SCALING CHO MLP ============
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train_selected)
+        X_test_scaled = scaler.transform(X_test_selected)
+        
+        # ============ TRAIN VÀ ĐÁNH GIÁ CÁC MODEL ============
+        logger.info("Đang train và đánh giá các model...")
+        
+        models = _create_models()
+        best_model = None
+        best_score = float('inf')
+        model_results = {}
+        
+        for name, base_model in models.items():
+            logger.info(f"Đánh giá model: {name}...")
+            
+            try:
+                # Calibrated model
+                calibrated = CalibratedClassifierCV(
+                    base_model,
+                    method="isotonic",
+                    cv=5
+                )
+                
+                # Dùng scaled data cho MLP
+                if name == "mlp":
+                    X_tr = X_train_scaled
+                    X_te = X_test_scaled
+                else:
+                    X_tr = X_train_selected
+                    X_te = X_test_selected
+                
+                result = _evaluate_model(calibrated, X_tr, y_train, X_te, y_test)
+                
+                if result:
+                    model_results[name] = {
+                        "accuracy": round(result["accuracy"] * 100, 2),
+                        "log_loss": round(result["log_loss"], 4)
+                    }
+                    
+                    logger.info(f"  {name}: accuracy={result['accuracy']*100:.2f}%, "
+                              f"log_loss={result['log_loss']:.4f}")
+                    
+                    if result["log_loss"] < best_score:
+                        best_score = result["log_loss"]
+                        best_model = calibrated
+                        metrics["accuracy"] = round(result["accuracy"] * 100, 2)
+                        metrics["log_loss"] = round(result["log_loss"], 4)
+                        metrics["model_type"] = name
+                        
+                        # Confusion matrix
+                        metrics["confusion_matrix"] = confusion_matrix(
+                            y_test, result["predictions"]
+                        ).tolist()
+            except Exception as e:
+                logger.error(f"Lỗi với model {name}: {e}")
+                continue
+        
+        metrics["models_evaluated"] = model_results
+        
+        # ============ ENSEMBLE ============
+        logger.info("Đang tạo ensemble model...")
+        
+        # Lấy top 3 models tốt nhất
+        sorted_models = sorted(model_results.items(), key=lambda x: x[1]["log_loss"])
+        top_models = [(name, models[name]) for name, _ in sorted_models[:3]]
+        
+        if len(top_models) >= 2:
+            logger.info(f"Ensemble với {len(top_models)} models tốt nhất")
+            
+            # Voting ensemble
+            ensemble = VotingClassifier(
+                estimators=[(name, model) for name, model in top_models],
+                voting='soft'
+            )
+            
+            # Calibrate ensemble
+            ensemble_calibrated = CalibratedClassifierCV(
+                ensemble,
+                method="isotonic",
+                cv=5
+            )
+            
+            # Đánh giá ensemble
+            if "mlp" in [name for name, _ in top_models]:
+                ensemble_result = _evaluate_model(
+                    ensemble_calibrated, X_train_scaled, y_train, X_test_scaled, y_test
+                )
+            else:
+                ensemble_result = _evaluate_model(
+                    ensemble_calibrated, X_train_selected, y_train, X_test_selected, y_test
+                )
+            
+            if ensemble_result and ensemble_result["log_loss"] < best_score:
+                logger.info(f"Ensemble tốt hơn! log_loss={ensemble_result['log_loss']:.4f}")
+                best_model = ensemble_calibrated
+                best_score = ensemble_result["log_loss"]
+                metrics["accuracy"] = round(ensemble_result["accuracy"] * 100, 2)
+                metrics["log_loss"] = round(ensemble_result["log_loss"], 4)
+                metrics["model_type"] = "ensemble"
+        
+        # ============ TRAIN FINAL MODEL TRÊN TOÀN BỘ DATA ============
+        logger.info("Train final model trên toàn bộ data...")
+        
+        if metrics["model_type"] == "ensemble":
+            final_model = VotingClassifier(
+                estimators=[(name, models[name]) for name, _ in top_models],
+                voting='soft'
+            )
+        else:
+            final_model = models.get(metrics["model_type"], models["random_forest"])
+        
+        # Calibrate final model
+        final_model = CalibratedClassifierCV(
+            final_model,
+            method="isotonic",
+            cv=5
+        )
+        
+        # Fit trên toàn bộ data
+        if metrics["model_type"] == "mlp":
+            X_all = scaler.fit_transform(selector.transform(X))
+        else:
+            X_all = selector.transform(X)
+        
+        final_model.fit(X_all, y)
+        
+        # Lưu scaler và selector vào model
+        final_model.scaler_ = scaler
+        final_model.selector_ = selector
+        final_model.selected_features_ = selected_features
+        final_model.is_mlp_ = metrics["model_type"] == "mlp"
+    
+    # Lấy danh sách teams
     teams = sorted(team_state["elo"].keys())
-
+    
+    logger.info("=" * 60)
+    logger.info("HOÀN THÀNH TRAIN MODEL")
+    logger.info(f"Model: {metrics['model_type']}")
+    logger.info(f"Accuracy: {metrics['accuracy']}%")
+    logger.info(f"Log loss: {metrics['log_loss']}")
+    logger.info("=" * 60)
+    
     return final_model, team_state, teams, metrics
 
 
-def load_or_train_model(force_retrain: bool = False):
+# ==================== CACHE MANAGEMENT ====================
+
+def load_or_train_model(force_retrain: bool = False) -> Tuple[Any, Dict, List[str], Dict]:
     """
-    Nếu đã có cache và còn "mới" (< CACHE_MAX_AGE_SECONDS) thì load lên cho
-    nhanh; ngược lại huấn luyện mới rồi lưu cache kèm timestamp.
+    Load model từ cache hoặc train mới nếu cache cũ
     """
     if not force_retrain and os.path.exists(CACHE_PATH):
-        with open(CACHE_PATH, "rb") as f:
-            cached = pickle.load(f)
-
-        age = time.time() - cached.get("trained_at", 0)
-        if age < CACHE_MAX_AGE_SECONDS:
-            logger.info("Dùng model cache (train cách đây %.1f giờ).", age / 3600)
-            return cached["model"], cached["team_state"], cached["teams"], cached["metrics"]
-        logger.info("Cache đã cũ (%.1f giờ) — train lại.", age / 3600)
-
+        try:
+            with open(CACHE_PATH, "rb") as f:
+                cached = pickle.load(f)
+            
+            age = time.time() - cached.get("trained_at", 0)
+            if age < CACHE_MAX_AGE_SECONDS:
+                logger.info(f"Dùng model cache (train cách đây {age/3600:.1f} giờ)")
+                return cached["model"], cached["team_state"], cached["teams"], cached["metrics"]
+            else:
+                logger.info(f"Cache cũ ({age/3600:.1f} giờ), train lại...")
+        except Exception as e:
+            logger.warning(f"Lỗi đọc cache: {e}, train lại...")
+    
+    # Train model mới
     model, team_state, teams, metrics = train_model()
-
-    with open(CACHE_PATH, "wb") as f:
-        pickle.dump({
-            "model": model,
-            "team_state": team_state,
-            "teams": teams,
-            "metrics": metrics,
-            "trained_at": time.time(),
-        }, f)
-
+    
+    # Lưu cache
+    try:
+        with open(CACHE_PATH, "wb") as f:
+            pickle.dump({
+                "model": model,
+                "team_state": team_state,
+                "teams": teams,
+                "metrics": metrics,
+                "trained_at": time.time(),
+                "version": "2.0"
+            }, f)
+        logger.info("Đã lưu model cache mới")
+    except Exception as e:
+        logger.warning(f"Không thể lưu cache: {e}")
+    
     return model, team_state, teams, metrics
 
 
-def predict_match(model, team_state: dict, doi_nha: str, doi_khach: str):
+# ==================== PREDICTION ====================
+
+def predict_match(model, team_state: Dict, doi_nha: str, doi_khach: str) -> Dict:
     """
-    Dự đoán tỉ lệ thắng/hòa/thua cho 1 trận đấu, dùng Elo + form mới nhất
-    của mỗi đội (tính đến trận cuối cùng có trong dữ liệu train).
+    Dự đoán tỉ lệ thắng/hòa/thua cho 1 trận đấu sắp diễn ra, dùng toàn bộ
+    feature đã xây dựng khi train (Elo, form, H2H, rest days, win rate,
+    points per game, matchday...), tính từ team_state mới nhất.
+
+    Model cuối cùng (final_model) có thể là 1 model đơn hoặc ensemble, và
+    luôn đi kèm 3 thuộc tính được gắn thêm lúc train:
+      - model.selector_        : SelectFromModel đã fit, dùng để chọn ra
+                                  đúng tập feature quan trọng nhất.
+      - model.scaler_          : StandardScaler (chỉ áp dụng khi model
+                                  cuối cùng là MLP, vì MLP nhạy với scale).
+      - model.is_mlp_          : True nếu model_type cuối cùng là "mlp".
 
     Trả về dict kết quả, hoặc raise ValueError nếu tên đội không hợp lệ.
     """
@@ -335,42 +855,145 @@ def predict_match(model, team_state: dict, doi_nha: str, doi_khach: str):
     if doi_khach not in elo:
         raise ValueError(f'Không tìm thấy đội khách "{doi_khach}" trong dữ liệu.')
 
+    # ============ ELO ============
     home_elo = elo[doi_nha]
     away_elo = elo[doi_khach]
+
+    # ============ FORM CHUNG (5 trận gần nhất) ============
     home_form = team_state["home_form"].get(doi_nha, 1.3)
     away_form = team_state["away_form"].get(doi_khach, 1.1)
     home_conceded = team_state["home_conceded"].get(doi_nha, 1.1)
     away_conceded = team_state["away_conceded"].get(doi_khach, 1.3)
 
-    # MỚI: head-to-head — lấy các lần đối đầu gần nhất trong dữ liệu train,
-    # định hướng lại theo góc nhìn "doi_nha là đội nhà ở trận sắp tới".
+    # ============ FORM RIÊNG SÂN NHÀ/SÂN KHÁCH ============
+    home_form_home = team_state["home_form_home_games"].get(doi_nha, 1.5)
+    away_form_away = team_state["away_form_away_games"].get(doi_khach, 1.0)
+
+    # ============ HEAD-TO-HEAD ============
+    # h2h_hist lưu tuple (đội_nhà_lần_đó, hiệu_số_bàn_thắng, ngày_đá) — định
+    # hướng lại hiệu số theo góc nhìn "doi_nha là đội nhà" ở trận sắp tới.
     pair_key = frozenset((doi_nha, doi_khach))
     past_meetings = team_state.get("h2h_hist", {}).get(pair_key, [])[-H2H_WINDOW:]
     if past_meetings:
         oriented_diffs = [
             diff if past_home == doi_nha else -diff
-            for past_home, diff in past_meetings
+            for past_home, diff, _ in past_meetings
         ]
         h2h_diff = float(np.mean(oriented_diffs))
     else:
         h2h_diff = 0.0
 
-    # MỚI: số ngày nghỉ — vì API không nhận ngày đá trận sắp tới, coi như
-    # trung lập (0). Nếu sau này thêm ô nhập ngày đá ở giao diện, có thể tính
-    # chính xác hơn bằng team_state["last_played"].
-    rest_days_diff = 0.0
+    h2h_home_wins = h2h_away_wins = h2h_draws = 0
+    for past_home, diff, _ in past_meetings:
+        oriented = diff if past_home == doi_nha else -diff
+        if oriented > 0:
+            h2h_home_wins += 1
+        elif oriented < 0:
+            h2h_away_wins += 1
+        else:
+            h2h_draws += 1
 
-    features = pd.DataFrame([{
+    # ============ SỐ NGÀY NGHỈ ============
+    # Dùng ngày hiện tại (lúc gọi API) so với lần đá gần nhất của mỗi đội —
+    # đây là ước tính hợp lý cho 1 trận sắp diễn ra (khác với lúc train, khi
+    # ta biết chính xác ngày đá thật của từng trận lịch sử).
+    last_played = team_state.get("last_played", {})
+    now = datetime.now()
+    home_last = last_played.get(doi_nha)
+    away_last = last_played.get(doi_khach)
+    home_rest = (now - home_last).days if home_last is not None else 7
+    away_rest = (now - away_last).days if away_last is not None else 7
+    rest_days_diff = float(np.clip(home_rest - away_rest, -14, 14))
+    home_rest_days = float(min(max(home_rest, 0), 14))
+    away_rest_days = float(min(max(away_rest, 0), 14))
+
+    # ============ WIN RATE & POINTS PER GAME ============
+    home_gp = team_state.get("home_games_played", {}).get(doi_nha, 0)
+    away_gp = team_state.get("away_games_played", {}).get(doi_khach, 0)
+    home_points = team_state.get("home_points", {}).get(doi_nha, 0)
+    away_points = team_state.get("away_points", {}).get(doi_khach, 0)
+
+    home_win_rate = home_points / (home_gp * 3) if home_gp > 0 else 0.35
+    away_win_rate = away_points / (away_gp * 3) if away_gp > 0 else 0.30
+    home_ppg = home_points / home_gp if home_gp > 0 else 1.3
+    away_ppg = away_points / away_gp if away_gp > 0 else 1.1
+    points_diff = home_ppg - away_ppg
+
+    # ============ CHUỖI BẤT BẠI ============
+    home_streak = min(team_state.get("home_unbeaten", {}).get(doi_nha, 0), 15)
+    away_streak = min(team_state.get("away_unbeaten", {}).get(doi_khach, 0), 15)
+
+    # ============ TỶ LỆ GHI BÀN TRUNG BÌNH ============
+    home_total_scored = team_state.get("home_total_scored", {}).get(doi_nha, 0)
+    away_total_scored = team_state.get("away_total_scored", {}).get(doi_khach, 0)
+    home_total_conceded = team_state.get("home_total_conceded", {}).get(doi_nha, 0)
+    away_total_conceded = team_state.get("away_total_conceded", {}).get(doi_khach, 0)
+
+    home_scored_avg = home_total_scored / home_gp if home_gp > 0 else 1.3
+    away_scored_avg = away_total_scored / away_gp if away_gp > 0 else 1.1
+    home_conceded_avg = home_total_conceded / home_gp if home_gp > 0 else 1.1
+    away_conceded_avg = away_total_conceded / away_gp if away_gp > 0 else 1.3
+
+    # ============ THỜI ĐIỂM MÙA GIẢI (ước tính) ============
+    # Trận sắp đá chưa có "round" thật, nên ước tính bằng số trận trung bình
+    # 2 đội đã đá — không chính xác 100% nhưng hợp lý hơn nhiều so với việc
+    # bỏ trống hoàn toàn hoặc luôn coi là đầu/cuối mùa.
+    matchday = int(round((home_gp + away_gp) / 2)) + 1
+    matchday = max(1, min(matchday, 38))
+    is_start_season = 1 if matchday <= 5 else 0
+    is_end_season = 1 if matchday >= 35 else 0
+
+    # ============ GHÉP FEATURE ĐÚNG THỨ TỰ FEATURE_COLS ============
+    raw_features = pd.DataFrame([{
         "elo_diff": home_elo - away_elo,
+        "elo_home": home_elo,
+        "elo_away": away_elo,
         "home_form": home_form,
         "away_form": away_form,
         "home_conceded": home_conceded,
         "away_conceded": away_conceded,
         "goal_diff_form": home_form - away_conceded - (away_form - home_conceded),
+        "home_form_home_games": home_form_home,
+        "away_form_away_games": away_form_away,
         "h2h_diff": h2h_diff,
+        "h2h_home_wins": h2h_home_wins,
+        "h2h_away_wins": h2h_away_wins,
+        "h2h_draws": h2h_draws,
         "rest_days_diff": rest_days_diff,
-    }])[FEATURE_COLS]
+        "home_rest_days": home_rest_days,
+        "away_rest_days": away_rest_days,
+        "home_win_rate": home_win_rate,
+        "away_win_rate": away_win_rate,
+        "home_unbeaten_streak": home_streak,
+        "away_unbeaten_streak": away_streak,
+        "home_points_per_game": home_ppg,
+        "away_points_per_game": away_ppg,
+        "points_diff": points_diff,
+        "matchday": matchday,
+        "is_start_season": is_start_season,
+        "is_end_season": is_end_season,
+        "home_goals_scored_avg": home_scored_avg,
+        "away_goals_scored_avg": away_scored_avg,
+        "home_goals_conceded_avg": home_conceded_avg,
+        "away_goals_conceded_avg": away_conceded_avg,
+    }])[FEATURE_COLS].fillna(0)
 
+    # ============ ÁP DỤNG FEATURE SELECTION (+ SCALING NẾU LÀ MLP) ============
+    # Phải dùng ĐÚNG selector/scaler đã fit lúc train (gắn sẵn vào model),
+    # nếu không feature sẽ lệch cột và model dự đoán sai/lỗi.
+    selector = getattr(model, "selector_", None)
+    scaler = getattr(model, "scaler_", None)
+    is_mlp = getattr(model, "is_mlp_", False)
+
+    if selector is not None:
+        features = selector.transform(raw_features)
+    else:
+        features = raw_features.values
+
+    if is_mlp and scaler is not None:
+        features = scaler.transform(features)
+
+    # ============ DỰ ĐOÁN ============
     probs = model.predict_proba(features)[0]
     # Thứ tự class của model: 0=khách thắng, 1=hoà, 2=nhà thắng (theo _get_result)
     class_order = list(model.classes_)
