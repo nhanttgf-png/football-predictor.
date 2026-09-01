@@ -2,7 +2,6 @@ __pycache__/
 *.pyc
 venv/
 .venv/
-model_cache.pkl
 .env
 .vscode/
 .idea/
