@@ -68,6 +68,10 @@ def load_or_train_model(force_retrain: bool = False):
     """
     Nếu đã có cache thì load lên cho nhanh, không thì huấn luyện mới rồi lưu cache.
     """
+    print(f"[DEBUG] CACHE_PATH = {CACHE_PATH}")
+    print(f"[DEBUG] File tồn tại? {os.path.exists(CACHE_PATH)}")
+    print(f"[DEBUG] Các file trong thư mục: {os.listdir(os.path.dirname(CACHE_PATH) or '.')}")
+
     if not force_retrain and os.path.exists(CACHE_PATH):
         with open(CACHE_PATH, "rb") as f:
             return pickle.load(f)
