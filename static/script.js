@@ -97,5 +97,22 @@ async function predict() {
   }
 }
 
+async function loadModelInfo() {
+  try {
+    const res = await fetch("/api/model-info");
+    if (!res.ok) return;
+    const data = await res.json();
+    const note = document.getElementById("model-accuracy-note");
+    if (data.accuracy != null) {
+      note.textContent =
+        `Đo trên ${data.so_tran_test} trận gần nhất chưa dùng để train: ` +
+        `độ chính xác ${data.accuracy}%.`;
+    }
+  } catch (err) {
+    // không hiển thị được thì thôi, không phải lỗi nghiêm trọng
+  }
+}
+
 btnPredict.addEventListener("click", predict);
 loadTeams();
+loadModelInfo();

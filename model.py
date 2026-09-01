@@ -34,6 +34,10 @@ Phiên bản nâng cấp so với bản gốc — những gì đã thay đổi v
 5. CACHE CÓ HẠN SỬ DỤNG.
    Cache cũ giờ có timestamp, tự động train lại nếu quá cũ thay vì dùng mãi
    một cache lỗi thời.
+
+6. TỰ ĐỘNG NHẬN MÙA GIẢI MỚI NHẤT.
+   SEASONS không còn gõ tay nữa mà tự tính theo ngày hiện tại — luôn bao
+   gồm mùa giải đang diễn ra, không cần sửa code mỗi khi sang mùa mới.
 """
 
 import os
