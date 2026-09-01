@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dự đoán tỷ lệ bóng đá</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+  <div class="floodlight"></div>
+
+  <main class="wrap">
+    <header class="header">
+      <p class="eyebrow">Premier League · 2023/24</p>
+      <h1 class="title">Đội nào <span class="title-accent">thắng</span>?</h1>
+      <p class="subtitle">Chọn hai đội, mô hình học máy sẽ tính tỷ lệ thắng – hòa – thua dựa trên phong độ ghi bàn của mùa giải.</p>
+    </header>
+
+    <section class="picker-card" aria-label="Chọn trận đấu">
+      <div class="team-slot">
+        <label for="doi-nha">Sân nhà</label>
+        <select id="doi-nha" disabled>
+          <option value="">Đang tải danh sách đội...</option>
+        </select>
+      </div>
+
+      <div class="vs">VS</div>
+
+      <div class="team-slot">
+        <label for="doi-khach">Sân khách</label>
+        <select id="doi-khach" disabled>
+          <option value="">Đang tải danh sách đội...</option>
+        </select>
+      </div>
+    </section>
+
+    <div class="action-row">
+      <button id="btn-predict" class="btn-predict" disabled>Xem tỷ lệ</button>
+      <p id="error-msg" class="error-msg" hidden></p>
+    </div>
+
+    <section id="result" class="result" hidden aria-live="polite">
+      <p class="result-heading" id="result-heading"></p>
+
+      <div class="bars">
+        <div class="bar-row">
+          <div class="bar-label"><span id="label-home"></span> thắng</div>
+          <div class="bar-track"><div id="bar-home" class="bar-fill bar-home"></div></div>
+          <div class="bar-pct" id="pct-home"></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">Hòa</div>
+          <div class="bar-track"><div id="bar-draw" class="bar-fill bar-draw"></div></div>
+          <div class="bar-pct" id="pct-draw"></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label"><span id="label-away"></span> thắng</div>
+          <div class="bar-track"><div id="bar-away" class="bar-fill bar-away"></div></div>
+          <div class="bar-pct" id="pct-away"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>Dữ liệu: FBref · Mô hình: Random Forest · Chỉ mang tính tham khảo, không phải lời khuyên cá cược.</p>
+  </footer>
+
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
