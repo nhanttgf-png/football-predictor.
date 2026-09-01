@@ -18,7 +18,10 @@ from sklearn.ensemble import RandomForestClassifier
 CACHE_PATH = os.path.join(os.path.dirname(__file__), "model_cache.pkl")
 
 LEAGUE = "ENG-Premier League"
-SEASON = "2324"
+# Danh sách các mùa giải muốn lấy dữ liệu. Muốn thêm/bớt mùa thì sửa list này.
+# Mã mùa giải theo soccerdata: "2324" = mùa 2023-24, "2425" = 2024-25,
+# "2526" = 2025-26, "2627" = 2026-27 (mùa mới bắt đầu, ít trận nên ít tin cậy).
+SEASONS = ["2324", "2425", "2526"]
 
 
 def _get_result(row):
@@ -30,12 +33,12 @@ def _get_result(row):
     return 0
 
 
-def train_model(league: str = LEAGUE, season: str = SEASON):
+def train_model(league: str = LEAGUE, seasons=SEASONS):
     """
-    Tải dữ liệu lịch sử từ FBref và huấn luyện lại mô hình từ đầu.
-    Trả về (model, home_stats, away_stats, danh_sach_doi).
+    Tải dữ liệu lịch sử từ FBref (có thể nhiều mùa cùng lúc) và huấn luyện lại
+    mô hình từ đầu. Trả về (model, home_stats, away_stats, danh_sach_doi).
     """
-    fbref = sd.FBref(leagues=league, seasons=season)
+    fbref = sd.FBref(leagues=league, seasons=seasons)
     games = fbref.read_schedule()
 
     completed_games = games[games["game_id"].notnull()].copy()
