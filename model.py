@@ -200,6 +200,49 @@ def _load_raw_games(league: str, seasons: List[str]) -> pd.DataFrame:
         logger.error(f"Lỗi khi tải dữ liệu: {e}")
         raise
 
+def _get_current_season_teams(games: pd.DataFrame, seasons: List[str]) -> List[str]:
+    """
+    Trả về danh sách các đội đang thi đấu ở mùa giải MỚI NHẤT (phần tử cuối
+    của SEASONS), để dropdown chọn đội trên web không hiện các đội đã xuống
+    hạng từ những mùa cũ (Watford, Stoke City, Cardiff City...).
+
+    Nếu vì lý do gì không xác định được cột mùa giải, sẽ fallback về TOÀN BỘ
+    đội từ trước tới nay (an toàn, chỉ là dropdown dài hơn, không lỗi).
+    """
+    if not seasons:
+        return sorted(set(games["home_team"]) | set(games["away_team"]))
+
+    latest_season = seasons[-1]
+
+    season_col = None
+    for candidate in ("season", "Season", "year"):
+        if candidate in games.columns:
+            season_col = candidate
+            break
+
+    if season_col is None:
+        logger.warning(
+            "Không tìm thấy cột mùa giải trong dữ liệu (các cột có sẵn: %s). "
+            "Tạm dùng toàn bộ đội từ trước tới nay cho dropdown.",
+            list(games.columns),
+        )
+        return sorted(set(games["home_team"]) | set(games["away_team"]))
+
+    current_df = games[games[season_col].astype(str) == str(latest_season)]
+    if len(current_df) == 0:
+        logger.warning(
+            "Không tìm thấy trận nào của mùa %s (cột %s). "
+            "Tạm dùng toàn bộ đội từ trước tới nay cho dropdown.",
+            latest_season, season_col,
+        )
+        return sorted(set(games["home_team"]) | set(games["away_team"]))
+
+    logger.info(
+        "Mùa hiện tại (%s) có %d đội: %s",
+        latest_season, len(set(current_df["home_team"]) | set(current_df["away_team"])),
+        sorted(set(current_df["home_team"]) | set(current_df["away_team"])),
+    )
+    return sorted(set(current_df["home_team"]) | set(current_df["away_team"]))
 
 def _safe_mean(arr: List[float], default: float = 0.0) -> float:
     """Tính mean an toàn, trả về default nếu list rỗng"""
@@ -777,8 +820,10 @@ def train_model(league: str = LEAGUE, seasons: List[str] = SEASONS) -> Tuple[Any
         final_model.selected_features_ = selected_features
         final_model.is_mlp_ = metrics["model_type"] == "mlp"
     
-    # Lấy danh sách teams
-    teams = sorted(team_state["elo"].keys())
+   
+    # Lấy danh sách teams — chỉ những đội đang đá mùa MỚI NHẤT, không lẫn
+    # đội cũ đã xuống hạng từ các mùa trước trong SEASONS.
+    teams = _get_current_season_teams(games, seasons)
     
     logger.info("=" * 60)
     logger.info("HOÀN THÀNH TRAIN MODEL")
