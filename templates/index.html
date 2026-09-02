@@ -48,6 +48,13 @@
       <p class="subtitle">Chọn hai đội, mô hình học máy sẽ tính tỷ lệ thắng – hòa – thua dựa trên phong độ ghi bàn của nhiều mùa giải gần nhất.</p>
     </header>
 
+    <div class="league-slot">
+      <label for="giai-dau">Giải đấu</label>
+      <select id="giai-dau" disabled>
+        <option value="">Đang tải danh sách giải...</option>
+      </select>
+    </div>
+
     <section class="picker-card" aria-label="Chọn trận đấu">
       <div class="team-slot">
         <label for="doi-nha">Sân nhà</label>
@@ -193,7 +200,8 @@
   <footer class="footer">
     <p>Dữ liệu: FBref · Mô hình: Random Forest (Elo + phong độ, xác suất đã hiệu chỉnh) · Chỉ mang tính tham khảo, không phải lời khuyên cá cược.</p>
     <p id="model-accuracy-note"></p>
-    <p class="footer-links"><a href="/about">Giới thiệu</a> · <a href="/privacy">Chính sách bảo mật</a> · <a href="/terms">Điều khoản sử dụng</a></p>
+    <p class="footer-links"><a href="/privacy">Chính sách bảo mật</a> · <a href="/terms">Điều khoản sử dụng</a></p>
+  </footer>
 
   <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>

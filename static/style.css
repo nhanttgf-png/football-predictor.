@@ -92,6 +92,36 @@ body {
   line-height: 1.5;
 }
 
+.league-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.league-slot label {
+  font-size: 0.82rem;
+  color: var(--chalk-dim);
+}
+
+.league-slot select {
+  appearance: none;
+  background: var(--ink);
+  color: var(--chalk);
+  border: 1px solid rgba(245, 242, 232, 0.25);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 1rem;
+  font-family: var(--font-body);
+  cursor: pointer;
+  width: 100%;
+}
+
+.league-slot select:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 .picker-card {
   display: grid;
   grid-template-columns: 1fr auto 1fr;

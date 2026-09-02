@@ -1,3 +1,4 @@
+const selGiaiDau = document.getElementById("giai-dau");
 const selDoiNha = document.getElementById("doi-nha");
 const selDoiKhach = document.getElementById("doi-khach");
 const btnPredict = document.getElementById("btn-predict");
@@ -312,9 +313,47 @@ function renderPremiumStats(stats, doiNha, doiKhach) {
   }
 }
 
-async function loadTeams() {
+async function loadLeagues() {
   try {
-    const res = await fetch("/api/teams");
+    const res = await fetch("/api/leagues");
+    if (!res.ok) throw new Error("Không tải được danh sách giải đấu");
+    const data = await res.json();
+
+    selGiaiDau.innerHTML = "";
+    for (const league of data.leagues) {
+      const opt = document.createElement("option");
+      opt.value = league.key;
+      opt.textContent = league.name;
+      selGiaiDau.appendChild(opt);
+    }
+    selGiaiDau.value = data.default;
+    selGiaiDau.disabled = false;
+
+    selGiaiDau.addEventListener("change", () => {
+      resultBox.hidden = true;
+      loadTeams(selGiaiDau.value);
+      loadModelInfo(selGiaiDau.value);
+    });
+
+    // Tải đội + thông tin model cho giải mặc định
+    loadTeams(data.default);
+    loadModelInfo(data.default);
+  } catch (err) {
+    // Nếu không tải được danh sách giải (vd bản backend cũ chưa có
+    // /api/leagues), vẫn cho web chạy bình thường với Ngoại hạng Anh.
+    selGiaiDau.hidden = true;
+    loadTeams();
+    loadModelInfo();
+  }
+}
+
+async function loadTeams(league) {
+  try {
+    const url = league ? `/api/teams?league=${encodeURIComponent(league)}` : "/api/teams";
+    selDoiNha.disabled = true;
+    selDoiKhach.disabled = true;
+    btnPredict.disabled = true;
+    const res = await fetch(url);
     if (!res.ok) throw new Error("Không tải được danh sách đội");
     const data = await res.json();
     fillSelect(selDoiNha, data.teams);
@@ -352,7 +391,11 @@ async function predict() {
     const res = await fetch("/api/predict", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ doi_nha: doiNha, doi_khach: doiKhach }),
+      body: JSON.stringify({
+        doi_nha: doiNha,
+        doi_khach: doiKhach,
+        league: selGiaiDau.value || undefined,
+      }),
     });
     const data = await res.json();
 
@@ -385,9 +428,10 @@ async function predict() {
   }
 }
 
-async function loadModelInfo() {
+async function loadModelInfo(league) {
   try {
-    const res = await fetch("/api/model-info");
+    const url = league ? `/api/model-info?league=${encodeURIComponent(league)}` : "/api/model-info";
+    const res = await fetch(url);
     if (!res.ok) return;
     const data = await res.json();
     const note = document.getElementById("model-accuracy-note");
@@ -402,7 +446,6 @@ async function loadModelInfo() {
 }
 
 btnPredict.addEventListener("click", predict);
-loadTeams();
-loadModelInfo();
+loadLeagues();
 loadMe();
 refreshUsageNote();

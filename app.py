@@ -30,7 +30,7 @@ from db_models import User
 from auth import auth_bp
 from payments import payments_bp
 from admin import admin_bp
-from model import load_or_train_model, predict_match
+from model import load_or_train_model, predict_match, LEAGUES, DEFAULT_LEAGUE_KEY
 
 logging.basicConfig(
     level=logging.INFO,
@@ -161,7 +161,19 @@ def _guest_usage_payload(rec: dict) -> dict:
 # Railway...) việc tải dữ liệu FBref có thể mất khá lâu, dễ khiến server bị
 # coi là "khởi động thất bại" (timeout). Thay vào đó, model được
 # train/khôi phục ở LẦN GỌI ĐẦU TIÊN tới get_model().
-_state = {"model": None, "team_state": None, "teams": None, "metrics": None}
+#
+# _state giờ là dict-of-dict, 1 entry riêng cho mỗi giải đấu, vì mỗi giải
+# có model/team_state/teams/metrics hoàn toàn khác nhau.
+_state = {}
+
+
+def _empty_state():
+    return {"model": None, "team_state": None, "teams": None, "metrics": None}
+
+
+def _valid_league_key(league_key: str) -> str:
+    """Trả về league_key hợp lệ, hoặc mặc định nếu người dùng gửi giá trị lạ."""
+    return league_key if league_key in LEAGUES else DEFAULT_LEAGUE_KEY
 
 # ==================== GOOGLE ADSENSE ====================
 # Chỉ hiện quảng cáo khi ADSENSE_CLIENT được cấu hình (mã dạng ca-pub-...,
@@ -192,9 +204,7 @@ def privacy_page():
 @app.route("/terms")
 def terms_page():
     return render_template("terms.html")
-@app.route("/about")
-def about_page():
-    return render_template("about.html")
+
 
 @app.route("/")
 def index():
@@ -207,36 +217,53 @@ def index():
     )
 
 
-def get_model():
-    if _state["model"] is None:
-        logger.info("Đang tải mô hình...")
+def get_model(league_key: str = DEFAULT_LEAGUE_KEY):
+    league_key = _valid_league_key(league_key)
+    state = _state.setdefault(league_key, _empty_state())
+
+    if state["model"] is None:
+        logger.info("Đang tải mô hình cho giải %s...", league_key)
         try:
-            model, team_state, teams, metrics = load_or_train_model()
+            model, team_state, teams, metrics = load_or_train_model(league_key=league_key)
         except Exception as e:
-            logger.error("Lỗi khởi tạo model: %s", e, exc_info=True)
+            logger.error("Lỗi khởi tạo model (%s): %s", league_key, e, exc_info=True)
             raise RuntimeError(
-                "Chưa có model_cache.pkl và server này không tự tải dữ liệu được "
-                "(thiếu Chrome). Hãy chạy `python train_offline.py` ở máy local rồi "
-                "commit + push file model_cache.pkl lên GitHub."
+                f"Chưa có model cache cho giải \"{LEAGUES[league_key]['name']}\" và "
+                "server này không tự tải dữ liệu được (thiếu Chrome). Hãy chạy "
+                f"`python train_offline.py --league \"{LEAGUES[league_key]['code']}\"` "
+                "ở máy local rồi commit + push file model_cache tương ứng lên GitHub."
             ) from e
-        _state.update(model=model, team_state=team_state, teams=teams, metrics=metrics)
-        logger.info("Model đã sẵn sàng! Số đội: %d", len(teams))
+        state.update(model=model, team_state=team_state, teams=teams, metrics=metrics)
+        logger.info("Model %s đã sẵn sàng! Số đội: %d", league_key, len(teams))
         if metrics.get("accuracy") is not None:
             logger.info(
-                "Metrics: accuracy=%s%%, log_loss=%s, model_type=%s",
-                metrics.get("accuracy"), metrics.get("log_loss"), metrics.get("model_type"),
+                "Metrics (%s): accuracy=%s%%, log_loss=%s, model_type=%s",
+                league_key, metrics.get("accuracy"), metrics.get("log_loss"), metrics.get("model_type"),
             )
-    return _state["model"], _state["team_state"], _state["teams"], _state["metrics"]
+    return state["model"], state["team_state"], state["teams"], state["metrics"]
+
+
+@app.route("/api/leagues")
+def api_leagues():
+    """Trả về danh sách giải đấu để frontend hiển thị dropdown chọn giải."""
+    return jsonify({
+        "leagues": [
+            {"key": key, "name": cfg["name"]} for key, cfg in LEAGUES.items()
+        ],
+        "default": DEFAULT_LEAGUE_KEY,
+    })
 
 
 @app.route("/api/teams")
 def api_teams():
-    """Trả về danh sách các đội để frontend hiển thị dropdown."""
+    """Trả về danh sách các đội để frontend hiển thị dropdown.
+    Query param ?league=<key> chọn giải đấu, mặc định Ngoại hạng Anh."""
+    league_key = _valid_league_key(request.args.get("league", DEFAULT_LEAGUE_KEY))
     try:
-        _, _, teams, _ = get_model()
+        _, _, teams, _ = get_model(league_key)
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 500
-    return jsonify({"teams": teams})
+    return jsonify({"teams": teams, "league": league_key})
 
 
 @app.route("/api/usage")
@@ -276,11 +303,14 @@ def api_upgrade():
 @app.route("/api/predict", methods=["POST"])
 def api_predict():
     """
-    Body JSON mong đợi: { "doi_nha": "Arsenal", "doi_khach": "Chelsea" }
+    Body JSON mong đợi:
+    { "doi_nha": "Arsenal", "doi_khach": "Chelsea", "league": "premier-league" }
+    ("league" không bắt buộc, mặc định Ngoại hạng Anh, giữ tương thích code cũ)
     """
     data = request.get_json(silent=True) or {}
     doi_nha = (data.get("doi_nha") or "").strip()
     doi_khach = (data.get("doi_khach") or "").strip()
+    league_key = _valid_league_key(data.get("league", DEFAULT_LEAGUE_KEY))
 
     if not doi_nha or not doi_khach:
         return jsonify({"error": "Vui lòng chọn cả đội nhà và đội khách."}), 400
@@ -304,7 +334,7 @@ def api_predict():
         }), 402
 
     try:
-        model, team_state, _, _ = get_model()
+        model, team_state, _, _ = get_model(league_key)
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 500
 
@@ -337,9 +367,11 @@ def api_model_info():
     Trả về độ chính xác thật của model, đo trên tập test tách theo thời gian
     (không phải số liệu "ảo" từ chính dữ liệu train). Frontend dùng để hiển
     thị cho người dùng biết nên tin dự đoán tới mức nào.
+    Query param ?league=<key> chọn giải đấu, mặc định Ngoại hạng Anh.
     """
+    league_key = _valid_league_key(request.args.get("league", DEFAULT_LEAGUE_KEY))
     try:
-        _, _, _, metrics = get_model()
+        _, _, _, metrics = get_model(league_key)
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 500
     return jsonify(metrics)
@@ -347,16 +379,21 @@ def api_model_info():
 
 @app.route("/api/retrain", methods=["POST"])
 def api_retrain():
-    """Huấn luyện lại mô hình từ đầu (tải dữ liệu mới nhất từ FBref)."""
+    """Huấn luyện lại mô hình từ đầu (tải dữ liệu mới nhất từ FBref).
+    Body JSON { "league": "la-liga" } không bắt buộc, mặc định Ngoại hạng Anh."""
+    data = request.get_json(silent=True) or {}
+    league_key = _valid_league_key(data.get("league", DEFAULT_LEAGUE_KEY))
     try:
-        model, team_state, teams, metrics = load_or_train_model(force_retrain=True)
+        model, team_state, teams, metrics = load_or_train_model(
+            force_retrain=True, league_key=league_key
+        )
     except Exception as e:
-        logger.error("Lỗi khi retrain: %s", e, exc_info=True)
+        logger.error("Lỗi khi retrain (%s): %s", league_key, e, exc_info=True)
         return jsonify({"error": str(e)}), 500
 
-    _state.update(model=model, team_state=team_state, teams=teams, metrics=metrics)
+    _state[league_key] = {"model": model, "team_state": team_state, "teams": teams, "metrics": metrics}
     return jsonify({
-        "message": "Đã huấn luyện lại mô hình.",
+        "message": f"Đã huấn luyện lại mô hình cho {LEAGUES[league_key]['name']}.",
         "so_doi": len(teams),
         "metrics": metrics,
     })
@@ -365,10 +402,12 @@ def api_retrain():
 @app.route("/health")
 def health():
     """Health check endpoint, hữu ích khi deploy (Render/Railway)."""
+    default_state = _state.get(DEFAULT_LEAGUE_KEY, {})
     return jsonify({
         "status": "healthy",
-        "model_ready": _state["model"] is not None,
-        "num_teams": len(_state["teams"]) if _state["teams"] else 0,
+        "model_ready": default_state.get("model") is not None,
+        "num_teams": len(default_state["teams"]) if default_state.get("teams") else 0,
+        "leagues_loaded": [k for k, v in _state.items() if v.get("model") is not None],
     })
 
 

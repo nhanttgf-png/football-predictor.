@@ -64,12 +64,39 @@ logger = logging.getLogger(__name__)
 
 # ==================== CẤU HÌNH ====================
 
-CACHE_PATH = os.path.join(os.path.dirname(__file__), "model_cache.pkl")
+CACHE_DIR = os.path.dirname(__file__)
 CACHE_MAX_AGE_SECONDS = 3 * 24 * 60 * 60  # 3 ngày
 
-# Danh sách giải đấu và mùa giải
-LEAGUE = "ENG-Premier League"
+# Danh sách mùa giải (dùng chung cho tất cả các giải đấu bên dưới)
 SEASONS = ["1718", "1819", "1920", "2021", "2122", "2223", "2324", "2425", "2526", "2627"]
+
+# Giữ lại LEAGUE/CACHE_PATH để tương thích code cũ (train_offline.py bản cũ,
+# debug_team_stats.py...) — mặc định trỏ về Ngoại hạng Anh.
+LEAGUE = "ENG-Premier League"
+CACHE_PATH = os.path.join(CACHE_DIR, "model_cache.pkl")
+
+# ==================== CÁC GIẢI ĐẤU ĐƯỢC HỖ TRỢ ====================
+# key: dùng trong URL/API (?league=la-liga) và trong tên file cache.
+# code: mã giải đấu mà soccerdata/FBref dùng để tải dữ liệu.
+# name: tên hiển thị trên web.
+LEAGUES = {
+    "premier-league": {"name": "Ngoại hạng Anh", "code": "ENG-Premier League", "seasons": SEASONS},
+    "la-liga":        {"name": "La Liga",         "code": "ESP-La Liga",       "seasons": SEASONS},
+    "serie-a":        {"name": "Serie A",         "code": "ITA-Serie A",       "seasons": SEASONS},
+    "bundesliga":     {"name": "Bundesliga",       "code": "GER-Bundesliga",   "seasons": SEASONS},
+    "ligue-1":        {"name": "Ligue 1",          "code": "FRA-Ligue 1",      "seasons": SEASONS},
+}
+DEFAULT_LEAGUE_KEY = "premier-league"
+
+
+def _cache_path(league_key: str) -> str:
+    """Mỗi giải đấu có 1 file cache riêng (model_cache_<league>.pkl), tránh
+    train xong giải này lại đè mất cache của giải khác."""
+    if league_key == DEFAULT_LEAGUE_KEY:
+        # Giữ đúng tên file cũ cho giải mặc định, để không phải train lại
+        # từ đầu Premier League khi nâng cấp lên bản nhiều giải đấu này.
+        return CACHE_PATH
+    return os.path.join(CACHE_DIR, f"model_cache_{league_key}.pkl")
 
 # Elo parameters
 ELO_K = 30  # Tăng K để cập nhật nhanh hơn
@@ -837,41 +864,58 @@ def train_model(league: str = LEAGUE, seasons: List[str] = SEASONS) -> Tuple[Any
 
 # ==================== CACHE MANAGEMENT ====================
 
-def load_or_train_model(force_retrain: bool = False) -> Tuple[Any, Dict, List[str], Dict]:
+def load_or_train_model(
+    force_retrain: bool = False,
+    league_key: str = DEFAULT_LEAGUE_KEY,
+) -> Tuple[Any, Dict, List[str], Dict]:
     """
-    Load model từ cache hoặc train mới nếu cache cũ
+    Load model từ cache hoặc train mới nếu cache cũ.
+    league_key: 1 trong các key của LEAGUES (vd "la-liga"). Mỗi giải có
+    file cache riêng nên train/giữ nhiều giải cùng lúc không đè lên nhau.
     """
-    if not force_retrain and os.path.exists(CACHE_PATH):
+    if league_key not in LEAGUES:
+        raise ValueError(
+            f'Giải đấu "{league_key}" chưa được hỗ trợ. '
+            f"Các giải hiện có: {', '.join(LEAGUES.keys())}"
+        )
+
+    cache_path = _cache_path(league_key)
+
+    if not force_retrain and os.path.exists(cache_path):
         try:
-            with open(CACHE_PATH, "rb") as f:
+            with open(cache_path, "rb") as f:
                 cached = pickle.load(f)
             
             age = time.time() - cached.get("trained_at", 0)
             if age < CACHE_MAX_AGE_SECONDS:
-                logger.info(f"Dùng model cache (train cách đây {age/3600:.1f} giờ)")
+                logger.info(f"Dùng model cache của {league_key} (train cách đây {age/3600:.1f} giờ)")
                 return cached["model"], cached["team_state"], cached["teams"], cached["metrics"]
             else:
-                logger.info(f"Cache cũ ({age/3600:.1f} giờ), train lại...")
+                logger.info(f"Cache {league_key} cũ ({age/3600:.1f} giờ), train lại...")
         except Exception as e:
-            logger.warning(f"Lỗi đọc cache: {e}, train lại...")
+            logger.warning(f"Lỗi đọc cache {league_key}: {e}, train lại...")
     
     # Train model mới
-    model, team_state, teams, metrics = train_model()
+    league_cfg = LEAGUES[league_key]
+    model, team_state, teams, metrics = train_model(
+        league=league_cfg["code"], seasons=league_cfg["seasons"]
+    )
     
     # Lưu cache
     try:
-        with open(CACHE_PATH, "wb") as f:
+        with open(cache_path, "wb") as f:
             pickle.dump({
                 "model": model,
                 "team_state": team_state,
                 "teams": teams,
                 "metrics": metrics,
                 "trained_at": time.time(),
-                "version": "2.0"
+                "version": "2.0",
+                "league_key": league_key,
             }, f)
-        logger.info("Đã lưu model cache mới")
+        logger.info(f"Đã lưu model cache mới cho {league_key}")
     except Exception as e:
-        logger.warning(f"Không thể lưu cache: {e}")
+        logger.warning(f"Không thể lưu cache {league_key}: {e}")
     
     return model, team_state, teams, metrics
 
