@@ -381,6 +381,17 @@ body {
   padding: 28px;
   max-width: 420px;
   width: 100%;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+@media (max-width: 480px) {
+  .modal {
+    padding: 12px;
+  }
+  .modal-card {
+    padding: 18px;
+  }
 }
 
 .modal-title {
@@ -401,6 +412,49 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.upgrade-price {
+  margin: 0 0 16px;
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  color: var(--amber);
+}
+
+.upgrade-qr-box {
+  margin-bottom: 16px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(245, 242, 232, 0.06);
+  border: 1px solid rgba(245, 242, 232, 0.15);
+  text-align: center;
+}
+
+.upgrade-qr-img {
+  width: clamp(140px, 45vw, 200px);
+  height: clamp(140px, 45vw, 200px);
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px;
+  margin-bottom: 12px;
+}
+
+.upgrade-qr-info {
+  text-align: left;
+  font-size: 0.85rem;
+  line-height: 1.7;
+}
+
+.upgrade-qr-info span {
+  color: var(--chalk-dim);
+}
+
+.upgrade-qr-note {
+  margin: 12px 0 0;
+  font-size: 0.78rem;
+  color: var(--chalk-dim);
+  text-align: left;
+  line-height: 1.5;
 }
 
 .account-bar {
