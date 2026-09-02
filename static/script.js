@@ -1,4 +1,21 @@
 const selGiaiDau = document.getElementById("giai-dau");
+
+// ---- Tab Dự đoán / Bảng xếp hạng ----
+const tabPredict = document.getElementById("tab-predict");
+const tabLeaderboard = document.getElementById("tab-leaderboard");
+const predictView = document.getElementById("predict-view");
+const leaderboardView = document.getElementById("leaderboard-view");
+const leaderboardError = document.getElementById("leaderboard-error");
+const leaderboardNote = document.getElementById("leaderboard-note");
+
+// ---- Sub-tab Mùa giải hiện tại / Tổng hợp nhiều mùa ----
+const subtabSeason = document.getElementById("subtab-season");
+const subtabAlltime = document.getElementById("subtab-alltime");
+const seasonTableBox = document.getElementById("season-table-box");
+const alltimeTableBox = document.getElementById("alltime-table-box");
+const seasonTableTbody = document.getElementById("season-table-tbody");
+const leaderboardSort = document.getElementById("leaderboard-sort");
+const leaderboardTbody = document.getElementById("leaderboard-tbody");
 const selDoiNha = document.getElementById("doi-nha");
 const selDoiKhach = document.getElementById("doi-khach");
 const btnPredict = document.getElementById("btn-predict");
@@ -333,6 +350,7 @@ async function loadLeagues() {
       resultBox.hidden = true;
       loadTeams(selGiaiDau.value);
       loadModelInfo(selGiaiDau.value);
+      if (!leaderboardView.hidden) loadCurrentLeaderboardView();
     });
 
     // Tải đội + thông tin model cho giải mặc định
@@ -346,6 +364,191 @@ async function loadLeagues() {
     loadModelInfo();
   }
 }
+
+// ==================== BẢNG XẾP HẠNG ====================
+
+let leaderboardSortLoaded = false;
+let leaderboardSubview = "season"; // "season" | "alltime"
+
+function switchToPredictView() {
+  tabPredict.classList.add("view-tab-active");
+  tabPredict.setAttribute("aria-selected", "true");
+  tabLeaderboard.classList.remove("view-tab-active");
+  tabLeaderboard.setAttribute("aria-selected", "false");
+  predictView.hidden = false;
+  leaderboardView.hidden = true;
+}
+
+function switchToLeaderboardView() {
+  tabLeaderboard.classList.add("view-tab-active");
+  tabLeaderboard.setAttribute("aria-selected", "true");
+  tabPredict.classList.remove("view-tab-active");
+  tabPredict.setAttribute("aria-selected", "false");
+  leaderboardView.hidden = false;
+  predictView.hidden = true;
+  loadCurrentLeaderboardView();
+}
+
+function switchToSeasonSubview() {
+  leaderboardSubview = "season";
+  subtabSeason.classList.add("lb-subtab-active");
+  subtabSeason.setAttribute("aria-selected", "true");
+  subtabAlltime.classList.remove("lb-subtab-active");
+  subtabAlltime.setAttribute("aria-selected", "false");
+  seasonTableBox.hidden = false;
+  alltimeTableBox.hidden = true;
+  loadCurrentLeaderboardView();
+}
+
+function switchToAlltimeSubview() {
+  leaderboardSubview = "alltime";
+  subtabAlltime.classList.add("lb-subtab-active");
+  subtabAlltime.setAttribute("aria-selected", "true");
+  subtabSeason.classList.remove("lb-subtab-active");
+  subtabSeason.setAttribute("aria-selected", "false");
+  alltimeTableBox.hidden = false;
+  seasonTableBox.hidden = true;
+  loadCurrentLeaderboardView();
+}
+
+function loadCurrentLeaderboardView() {
+  if (leaderboardSubview === "season") loadSeasonTable();
+  else loadLeaderboard();
+}
+
+function showLeaderboardError(message) {
+  leaderboardError.textContent = message;
+  leaderboardError.hidden = false;
+}
+
+function clearLeaderboardError() {
+  leaderboardError.hidden = true;
+  leaderboardError.textContent = "";
+}
+
+async function loadSeasonTable() {
+  clearLeaderboardError();
+  leaderboardNote.textContent = "";
+  seasonTableTbody.innerHTML = `<tr><td colspan="10">Đang tải...</td></tr>`;
+
+  try {
+    const league = selGiaiDau.value;
+    const url = `/api/season-table?league=${encodeURIComponent(league)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (!res.ok) {
+      seasonTableTbody.innerHTML = "";
+      showLeaderboardError(data.error || "Có lỗi xảy ra, vui lòng thử lại.");
+      return;
+    }
+
+    leaderboardNote.textContent = data.season
+      ? `Bảng xếp hạng chính thức, mùa giải ${data.season}.`
+      : "Bảng xếp hạng chính thức của mùa giải mới nhất.";
+
+    renderSeasonTable(data.rows);
+  } catch (err) {
+    seasonTableTbody.innerHTML = "";
+    showLeaderboardError("Không kết nối được tới server. Kiểm tra lại backend đang chạy chưa.");
+  }
+}
+
+function renderSeasonTable(rows) {
+  seasonTableTbody.innerHTML = "";
+
+  if (!rows || !rows.length) {
+    seasonTableTbody.innerHTML = `<tr><td colspan="10">Chưa có dữ liệu.</td></tr>`;
+    return;
+  }
+
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td class="lb-rank">${r.hang}</td>` +
+      `<td class="lb-col-team">${r.doi}</td>` +
+      `<td>${r.so_tran}</td>` +
+      `<td>${r.thang}</td>` +
+      `<td>${r.hoa}</td>` +
+      `<td>${r.thua}</td>` +
+      `<td>${r.bt}</td>` +
+      `<td>${r.bb}</td>` +
+      `<td>${r.hs > 0 ? "+" + r.hs : r.hs}</td>` +
+      `<td>${r.diem}</td>`;
+    seasonTableTbody.appendChild(tr);
+  }
+}
+
+async function loadLeaderboard() {
+  clearLeaderboardError();
+  leaderboardTbody.innerHTML = `<tr><td colspan="9">Đang tải...</td></tr>`;
+
+  try {
+    const league = selGiaiDau.value;
+    const sort = leaderboardSort.value || "diem";
+    const url = `/api/leaderboard?league=${encodeURIComponent(league)}&sort=${encodeURIComponent(sort)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (!res.ok) {
+      leaderboardTbody.innerHTML = "";
+      showLeaderboardError(data.error || "Có lỗi xảy ra, vui lòng thử lại.");
+      return;
+    }
+
+    // Chỉ điền dropdown sắp xếp 1 lần (danh sách thông số không đổi giữa các giải)
+    if (!leaderboardSortLoaded && data.sort_options && data.sort_options.length) {
+      leaderboardSort.innerHTML = "";
+      for (const opt of data.sort_options) {
+        const o = document.createElement("option");
+        o.value = opt.key;
+        o.textContent = opt.label;
+        leaderboardSort.appendChild(o);
+      }
+      leaderboardSort.value = data.sort;
+      leaderboardSortLoaded = true;
+    }
+
+    leaderboardNote.textContent =
+      "Xếp hạng dựa trên toàn bộ dữ liệu mô hình đã học (nhiều mùa giải), " +
+      "không phải bảng xếp hạng chính thức của 1 mùa cụ thể.";
+
+    renderLeaderboard(data.rows);
+  } catch (err) {
+    leaderboardTbody.innerHTML = "";
+    showLeaderboardError("Không kết nối được tới server. Kiểm tra lại backend đang chạy chưa.");
+  }
+}
+
+function renderLeaderboard(rows) {
+  leaderboardTbody.innerHTML = "";
+
+  if (!rows || !rows.length) {
+    leaderboardTbody.innerHTML = `<tr><td colspan="9">Chưa có dữ liệu.</td></tr>`;
+    return;
+  }
+
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td class="lb-rank">${r.hang}</td>` +
+      `<td class="lb-col-team">${r.doi}</td>` +
+      `<td>${r.so_tran}</td>` +
+      `<td>${r.diem}</td>` +
+      `<td>${r.diem_moi_tran}</td>` +
+      `<td>${r.ban_thang}</td>` +
+      `<td>${r.ban_thua}</td>` +
+      `<td>${r.hieu_so > 0 ? "+" + r.hieu_so : r.hieu_so}</td>` +
+      `<td>${r.elo}</td>`;
+    leaderboardTbody.appendChild(tr);
+  }
+}
+
+tabPredict.addEventListener("click", switchToPredictView);
+tabLeaderboard.addEventListener("click", switchToLeaderboardView);
+subtabSeason.addEventListener("click", switchToSeasonSubview);
+subtabAlltime.addEventListener("click", switchToAlltimeSubview);
+leaderboardSort.addEventListener("change", loadLeaderboard);
 
 async function loadTeams(league) {
   try {

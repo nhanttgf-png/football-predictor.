@@ -55,6 +55,69 @@
       </select>
     </div>
 
+    <div class="view-tabs" role="tablist">
+      <button type="button" id="tab-predict" class="view-tab view-tab-active" role="tab" aria-selected="true">Dự đoán trận đấu</button>
+      <button type="button" id="tab-leaderboard" class="view-tab" role="tab" aria-selected="false">Bảng xếp hạng</button>
+    </div>
+
+    <section id="leaderboard-view" class="leaderboard-view" hidden aria-label="Bảng xếp hạng">
+      <div class="lb-subtabs" role="tablist">
+        <button type="button" id="subtab-season" class="lb-subtab lb-subtab-active" role="tab" aria-selected="true">Mùa giải hiện tại</button>
+        <button type="button" id="subtab-alltime" class="lb-subtab" role="tab" aria-selected="false">Tổng hợp nhiều mùa</button>
+      </div>
+
+      <p id="leaderboard-error" class="error-msg" hidden></p>
+      <p id="leaderboard-note" class="leaderboard-note"></p>
+
+      <div id="season-table-box">
+        <div class="leaderboard-table-wrap">
+          <table class="leaderboard-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th class="lb-col-team">Đội</th>
+                <th>Trận</th>
+                <th>Thắng</th>
+                <th>Hoà</th>
+                <th>Thua</th>
+                <th>BT</th>
+                <th>BB</th>
+                <th>HS</th>
+                <th>Điểm</th>
+              </tr>
+            </thead>
+            <tbody id="season-table-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="alltime-table-box" hidden>
+        <div class="leaderboard-toolbar">
+          <label for="leaderboard-sort">Sắp xếp theo</label>
+          <select id="leaderboard-sort"></select>
+        </div>
+        <div class="leaderboard-table-wrap">
+          <table class="leaderboard-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th class="lb-col-team">Đội</th>
+                <th>Trận</th>
+                <th>Điểm</th>
+                <th>Đ/trận</th>
+                <th>BT</th>
+                <th>BB</th>
+                <th>HS</th>
+                <th>Elo</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboard-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <div id="predict-view">
     <section class="picker-card" aria-label="Chọn trận đấu">
       <div class="team-slot">
         <label for="doi-nha">Sân nhà</label>
@@ -135,6 +198,7 @@
         </div>
       </div>
     </section>
+    </div>
   </main>
 
   <div id="upgrade-modal" class="modal" hidden>

@@ -30,7 +30,15 @@ from db_models import User
 from auth import auth_bp
 from payments import payments_bp
 from admin import admin_bp
-from model import load_or_train_model, predict_match, LEAGUES, DEFAULT_LEAGUE_KEY
+from model import (
+    load_or_train_model,
+    predict_match,
+    LEAGUES,
+    DEFAULT_LEAGUE_KEY,
+    build_leaderboard,
+    sort_leaderboard,
+    LEADERBOARD_SORT_FIELDS,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -264,6 +272,67 @@ def api_teams():
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 500
     return jsonify({"teams": teams, "league": league_key})
+
+
+@app.route("/api/season-table")
+def api_season_table():
+    """
+    Bảng xếp hạng CHÍNH THỨC của mùa giải mới nhất (đúng nghĩa: thắng/hoà/
+    thua/bàn thắng/bàn thua/hiệu số/điểm, chỉ tính các trận trong mùa đó) —
+    khác với /api/leaderboard (tổng hợp nhiều mùa, dùng cho so sánh sức
+    mạnh tổng thể của model).
+    Query param ?league=<key> chọn giải đấu, mặc định Ngoại hạng Anh.
+    """
+    league_key = _valid_league_key(request.args.get("league", DEFAULT_LEAGUE_KEY))
+    try:
+        _, team_state, _, _ = get_model(league_key)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 500
+
+    season_table = team_state.get("season_table")
+    if season_table is None:
+        return jsonify({
+            "error": "Model cache hiện tại chưa có dữ liệu bảng xếp hạng theo mùa "
+                     "(được train bằng bản code cũ). Hãy chạy lại "
+                     f"`python train_offline.py --league \"{LEAGUES[league_key]['code']}\"` "
+                     "để tạo cache mới rồi dùng lại tính năng này."
+        }), 409
+
+    return jsonify({
+        "league": league_key,
+        "season": team_state.get("season_label"),
+        "rows": season_table,
+    })
+
+
+@app.route("/api/leaderboard")
+def api_leaderboard():
+    """Bảng xếp hạng các đội của 1 giải đấu, sắp xếp theo thông số do FE chọn.
+    Query params:
+      ?league=<key>  giải đấu, mặc định Ngoại hạng Anh.
+      ?sort=<key>    thông số sắp xếp, xem LEADERBOARD_SORT_FIELDS
+                     (mặc định "diem" - điểm số)."""
+    league_key = _valid_league_key(request.args.get("league", DEFAULT_LEAGUE_KEY))
+    sort_by = request.args.get("sort", "diem")
+    if sort_by not in LEADERBOARD_SORT_FIELDS:
+        sort_by = "diem"
+
+    try:
+        _, team_state, teams, _ = get_model(league_key)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 500
+
+    rows = build_leaderboard(team_state, teams)
+    rows = sort_leaderboard(rows, sort_by)
+
+    return jsonify({
+        "league": league_key,
+        "sort": sort_by,
+        "sort_options": [
+            {"key": k, "label": v} for k, v in LEADERBOARD_SORT_FIELDS.items()
+        ],
+        "rows": rows,
+    })
 
 
 @app.route("/api/usage")

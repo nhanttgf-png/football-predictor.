@@ -122,6 +122,139 @@ body {
   cursor: wait;
 }
 
+.view-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.view-tab {
+  flex: 1;
+  background: rgba(245, 242, 232, 0.06);
+  color: var(--chalk-dim);
+  border: 1px solid rgba(245, 242, 232, 0.16);
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 0.88rem;
+  font-family: var(--font-body);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.view-tab-active {
+  background: var(--amber);
+  color: var(--ink);
+  border-color: var(--amber);
+}
+
+.leaderboard-view {
+  background: rgba(245, 242, 232, 0.06);
+  border: 1px solid rgba(245, 242, 232, 0.12);
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.lb-subtabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.lb-subtab {
+  background: transparent;
+  color: var(--chalk-dim);
+  border: 1px solid rgba(245, 242, 232, 0.16);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-family: var(--font-body);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lb-subtab-active {
+  background: rgba(242, 177, 52, 0.16);
+  color: var(--amber);
+  border-color: var(--amber);
+}
+
+.leaderboard-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.leaderboard-toolbar label {
+  font-size: 0.82rem;
+  color: var(--chalk-dim);
+}
+
+.leaderboard-toolbar select {
+  appearance: none;
+  background: var(--ink);
+  color: var(--chalk);
+  border: 1px solid rgba(245, 242, 232, 0.25);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  font-family: var(--font-body);
+  cursor: pointer;
+}
+
+.leaderboard-note {
+  margin: 0 0 14px;
+  font-size: 0.78rem;
+  color: var(--chalk-dim);
+  line-height: 1.4;
+}
+
+.leaderboard-table-wrap {
+  overflow-x: auto;
+}
+
+.leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  min-width: 480px;
+}
+
+.leaderboard-table th,
+.leaderboard-table td {
+  padding: 8px 6px;
+  text-align: center;
+  border-bottom: 1px solid rgba(245, 242, 232, 0.1);
+  white-space: nowrap;
+}
+
+.leaderboard-table th {
+  color: var(--amber);
+  font-weight: 700;
+  font-size: 0.78rem;
+}
+
+.leaderboard-table .lb-col-team {
+  text-align: left;
+}
+
+.leaderboard-table td.lb-col-team {
+  text-align: left;
+  color: var(--chalk);
+  font-weight: 600;
+}
+
+.leaderboard-table tbody tr:hover {
+  background: rgba(245, 242, 232, 0.05);
+}
+
+.leaderboard-table tbody tr:nth-child(-n+4) td.lb-rank {
+  color: var(--amber);
+  font-weight: 700;
+}
+
 .picker-card {
   display: grid;
   grid-template-columns: 1fr auto 1fr;

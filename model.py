@@ -227,6 +227,38 @@ def _load_raw_games(league: str, seasons: List[str]) -> pd.DataFrame:
         logger.error(f"Lỗi khi tải dữ liệu: {e}")
         raise
 
+def _detect_season_col(games: pd.DataFrame) -> Optional[str]:
+    """Tìm tên cột lưu mùa giải trong DataFrame trận đấu (khác nhau tuỳ
+    phiên bản soccerdata: "season", "Season" hoặc "year")."""
+    for candidate in ("season", "Season", "year"):
+        if candidate in games.columns:
+            return candidate
+    return None
+
+
+def _latest_season_slice(
+    games: pd.DataFrame, seasons: List[str]
+) -> Tuple[Optional[str], Optional[str], Optional[pd.DataFrame]]:
+    """
+    Trả về (season_col, latest_season, df chỉ chứa các trận của mùa mới nhất).
+    Nếu không xác định được cột/giá trị mùa giải hợp lệ, trả về
+    (season_col, None, None) để nơi gọi tự fallback.
+    """
+    if not seasons:
+        return None, None, None
+
+    season_col = _detect_season_col(games)
+    if season_col is None:
+        return None, None, None
+
+    latest_season = seasons[-1]
+    season_df = games[games[season_col].astype(str) == str(latest_season)]
+    if len(season_df) == 0:
+        return season_col, None, None
+
+    return season_col, latest_season, season_df
+
+
 def _get_current_season_teams(games: pd.DataFrame, seasons: List[str]) -> List[str]:
     """
     Trả về danh sách các đội đang thi đấu ở mùa giải MỚI NHẤT (phần tử cuối
@@ -236,16 +268,7 @@ def _get_current_season_teams(games: pd.DataFrame, seasons: List[str]) -> List[s
     Nếu vì lý do gì không xác định được cột mùa giải, sẽ fallback về TOÀN BỘ
     đội từ trước tới nay (an toàn, chỉ là dropdown dài hơn, không lỗi).
     """
-    if not seasons:
-        return sorted(set(games["home_team"]) | set(games["away_team"]))
-
-    latest_season = seasons[-1]
-
-    season_col = None
-    for candidate in ("season", "Season", "year"):
-        if candidate in games.columns:
-            season_col = candidate
-            break
+    season_col, latest_season, season_df = _latest_season_slice(games, seasons)
 
     if season_col is None:
         logger.warning(
@@ -255,21 +278,87 @@ def _get_current_season_teams(games: pd.DataFrame, seasons: List[str]) -> List[s
         )
         return sorted(set(games["home_team"]) | set(games["away_team"]))
 
-    current_df = games[games[season_col].astype(str) == str(latest_season)]
-    if len(current_df) == 0:
+    if season_df is None:
         logger.warning(
-            "Không tìm thấy trận nào của mùa %s (cột %s). "
+            "Không tìm thấy trận nào của mùa mới nhất (%s). "
             "Tạm dùng toàn bộ đội từ trước tới nay cho dropdown.",
-            latest_season, season_col,
+            seasons[-1],
         )
         return sorted(set(games["home_team"]) | set(games["away_team"]))
 
     logger.info(
         "Mùa hiện tại (%s) có %d đội: %s",
-        latest_season, len(set(current_df["home_team"]) | set(current_df["away_team"])),
-        sorted(set(current_df["home_team"]) | set(current_df["away_team"])),
+        latest_season, len(set(season_df["home_team"]) | set(season_df["away_team"])),
+        sorted(set(season_df["home_team"]) | set(season_df["away_team"])),
     )
-    return sorted(set(current_df["home_team"]) | set(current_df["away_team"]))
+    return sorted(set(season_df["home_team"]) | set(season_df["away_team"]))
+
+def _build_season_standings(season_games: pd.DataFrame) -> List[Dict]:
+    """
+    Tính bảng xếp hạng CHÍNH THỨC (đúng nghĩa) của 1 mùa giải cụ thể, chỉ
+    từ các trận của MÙA ĐÓ — khác với build_leaderboard() (dùng dữ liệu
+    tích luỹ nhiều mùa cho mục đích feature engineering của model).
+
+    season_games cần có các cột: home_team, away_team, home_score,
+    away_score, target (2=nhà thắng, 1=hoà, 0=khách thắng).
+
+    Xếp hạng theo chuẩn bóng đá: Điểm giảm dần -> Hiệu số giảm dần ->
+    Bàn thắng giảm dần.
+    """
+    stats: Dict[str, Dict[str, float]] = {}
+
+    def _row(team: str) -> Dict[str, float]:
+        return stats.setdefault(team, {
+            "so_tran": 0, "thang": 0, "hoa": 0, "thua": 0,
+            "bt": 0, "bb": 0, "diem": 0,
+        })
+
+    for _, g in season_games.iterrows():
+        home, away = g["home_team"], g["away_team"]
+        hs, as_ = g["home_score"], g["away_score"]
+        h, a = _row(home), _row(away)
+
+        h["so_tran"] += 1
+        a["so_tran"] += 1
+        h["bt"] += hs
+        h["bb"] += as_
+        a["bt"] += as_
+        a["bb"] += hs
+
+        if g["target"] == 2:  # nhà thắng
+            h["thang"] += 1
+            h["diem"] += 3
+            a["thua"] += 1
+        elif g["target"] == 0:  # khách thắng
+            a["thang"] += 1
+            a["diem"] += 3
+            h["thua"] += 1
+        else:  # hoà
+            h["hoa"] += 1
+            a["hoa"] += 1
+            h["diem"] += 1
+            a["diem"] += 1
+
+    rows = []
+    for team, s in stats.items():
+        rows.append({
+            "doi": team,
+            "so_tran": int(s["so_tran"]),
+            "thang": int(s["thang"]),
+            "hoa": int(s["hoa"]),
+            "thua": int(s["thua"]),
+            "bt": int(s["bt"]),
+            "bb": int(s["bb"]),
+            "hs": int(s["bt"] - s["bb"]),
+            "diem": int(s["diem"]),
+        })
+
+    rows.sort(key=lambda r: (r["diem"], r["hs"], r["bt"]), reverse=True)
+    for i, r in enumerate(rows, start=1):
+        r["hang"] = i
+
+    return rows
+
 
 def _safe_mean(arr: List[float], default: float = 0.0) -> float:
     """Tính mean an toàn, trả về default nếu list rỗng"""
@@ -658,6 +747,15 @@ def train_model(league: str = LEAGUE, seasons: List[str] = SEASONS) -> Tuple[Any
     
     # Xây dựng features
     df, team_state = _build_features(games)
+
+    # Bảng xếp hạng CHÍNH THỨC của mùa giải mới nhất (dùng cho tab "Bảng
+    # xếp hạng" trên web) — tính riêng từ các trận của mùa đó, không lẫn
+    # dữ liệu tích luỹ nhiều mùa như các key khác trong team_state.
+    _, latest_season, season_games = _latest_season_slice(games, seasons)
+    team_state["season_label"] = latest_season
+    team_state["season_table"] = (
+        _build_season_standings(season_games) if season_games is not None else []
+    )
     
     # Chuẩn bị dữ liệu
     X = df[FEATURE_COLS].copy()
@@ -1153,3 +1251,90 @@ def predict_match(model, team_state: Dict, doi_nha: str, doi_khach: str) -> Dict
         "explain": explain,
         "premium_stats": premium_stats,
     }
+
+
+# ==================== BẢNG XẾP HẠNG ====================
+
+# key -> nhãn hiển thị cho FE (dropdown chọn thông số sắp xếp).
+# Thứ tự dict cũng là thứ tự hiện trong dropdown.
+LEADERBOARD_SORT_FIELDS = {
+    "diem": "Điểm",
+    "diem_moi_tran": "Điểm / trận",
+    "elo": "Điểm Elo",
+    "hieu_so": "Hiệu số bàn thắng",
+    "ban_thang": "Bàn thắng",
+    "ban_thua": "Bàn thua",
+    "phong_do_ghi_ban": "Phong độ ghi bàn (TB 5 trận gần nhất)",
+    "bat_bai_lien_tiep": "Chuỗi bất bại",
+}
+
+# Các thông số càng THẤP càng tốt -> sắp xếp tăng dần thay vì giảm dần.
+_LEADERBOARD_ASCENDING_FIELDS = {"ban_thua"}
+
+
+def build_leaderboard(team_state: Dict, teams: List[str]) -> List[Dict]:
+    """
+    Xây dựng bảng xếp hạng các đội trong 1 giải đấu, từ các chỉ số đã tích
+    luỹ trong team_state (điểm, bàn thắng/bại, Elo, phong độ...).
+
+    LƯU Ý QUAN TRỌNG: team_state tích luỹ dữ liệu từ NHIỀU MÙA GIẢI (theo
+    LEAGUES[...]["seasons"]), không tách riêng theo từng mùa -> đây KHÔNG
+    phải bảng xếp hạng chính thức của 1 mùa giải cụ thể (như trên
+    Premier League/FBref), mà là bảng xếp hạng "sức mạnh tổng thể" dựa
+    trên toàn bộ dữ liệu mô hình đã học được. Elo và điểm/trận vẫn phản
+    ánh khá tốt phong độ tương đối giữa các đội đang thi đấu mùa hiện tại.
+    """
+    elo = team_state.get("elo", {})
+    home_points = team_state.get("home_points", {})
+    away_points = team_state.get("away_points", {})
+    home_gp = team_state.get("home_games_played", {})
+    away_gp = team_state.get("away_games_played", {})
+    home_scored = team_state.get("home_total_scored", {})
+    away_scored = team_state.get("away_total_scored", {})
+    home_conceded = team_state.get("home_total_conceded", {})
+    away_conceded = team_state.get("away_total_conceded", {})
+    home_form = team_state.get("home_form", {})
+    away_form = team_state.get("away_form", {})
+    home_unbeaten = team_state.get("home_unbeaten", {})
+    away_unbeaten = team_state.get("away_unbeaten", {})
+
+    rows = []
+    for team in teams:
+        so_tran = home_gp.get(team, 0) + away_gp.get(team, 0)
+        diem = home_points.get(team, 0) + away_points.get(team, 0)
+        ban_thang = home_scored.get(team, 0) + away_scored.get(team, 0)
+        ban_thua = home_conceded.get(team, 0) + away_conceded.get(team, 0)
+
+        form_vals = [v for v in (home_form.get(team), away_form.get(team)) if v is not None]
+        phong_do = float(np.mean(form_vals)) if form_vals else 0.0
+
+        rows.append({
+            "doi": team,
+            "elo": round(elo.get(team, ELO_START)),
+            "so_tran": so_tran,
+            "diem": round(diem, 1),
+            "diem_moi_tran": round(diem / so_tran, 2) if so_tran > 0 else 0.0,
+            "ban_thang": ban_thang,
+            "ban_thua": ban_thua,
+            "hieu_so": ban_thang - ban_thua,
+            "phong_do_ghi_ban": round(phong_do, 2),
+            "bat_bai_lien_tiep": max(
+                home_unbeaten.get(team, 0), away_unbeaten.get(team, 0)
+            ),
+        })
+
+    return rows
+
+
+def sort_leaderboard(rows: List[Dict], sort_by: str = "diem") -> List[Dict]:
+    """Sắp xếp bảng xếp hạng theo 1 thông số và gán số thứ hạng ("hang").
+    sort_by không hợp lệ -> tự động dùng "diem" (điểm số) làm mặc định."""
+    key = sort_by if sort_by in LEADERBOARD_SORT_FIELDS else "diem"
+    sorted_rows = sorted(
+        rows,
+        key=lambda r: r.get(key, 0),
+        reverse=key not in _LEADERBOARD_ASCENDING_FIELDS,
+    )
+    for i, r in enumerate(sorted_rows, start=1):
+        r["hang"] = i
+    return sorted_rows
