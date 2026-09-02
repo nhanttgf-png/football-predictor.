@@ -1046,10 +1046,66 @@ def predict_match(model, team_state: Dict, doi_nha: str, doi_khach: str) -> Dict
     def _p(cls):
         return round(float(probs[class_order.index(cls)]) * 100, 1)
 
+    # ============ GIẢI THÍCH NGẮN (hiển thị cho mọi người dùng) ============
+    # Không cần model giải thích được (Random Forest không có "lý do" tường
+    # minh) — chỉ cần liệt lại vài chênh lệch số liệu lớn nhất theo thứ tự
+    # dễ hiểu, người xem tự suy ra vì sao tỉ lệ nghiêng về bên nào.
+    explain = []
+
+    elo_diff_abs = home_elo - away_elo
+    if abs(elo_diff_abs) >= 15:
+        leader = doi_nha if elo_diff_abs > 0 else doi_khach
+        explain.append(f"{leader} có điểm Elo cao hơn ({round(abs(elo_diff_abs))} điểm).")
+
+    if abs(points_diff) >= 0.3:
+        leader = doi_nha if points_diff > 0 else doi_khach
+        explain.append(f"{leader} đang có phong độ điểm số tốt hơn (điểm/trận cao hơn).")
+
+    if past_meetings:
+        if h2h_diff > 0.3:
+            explain.append(f"{doi_nha} thường thắng đậm hơn trong các lần đối đầu gần đây.")
+        elif h2h_diff < -0.3:
+            explain.append(f"{doi_khach} thường thắng đậm hơn trong các lần đối đầu gần đây.")
+        else:
+            explain.append("Lịch sử đối đầu gần đây khá cân bằng giữa hai đội.")
+    else:
+        explain.append("Chưa có dữ liệu đối đầu gần đây giữa hai đội.")
+
+    if home_streak >= 4:
+        explain.append(f"{doi_nha} đang bất bại {home_streak} trận sân nhà gần nhất.")
+    if away_streak >= 4:
+        explain.append(f"{doi_khach} đang bất bại {away_streak} trận sân khách gần nhất.")
+
+    if abs(rest_days_diff) >= 3:
+        rested = doi_nha if rest_days_diff < 0 else doi_khach
+        explain.append(f"{rested} có nhiều ngày nghỉ hơn trước trận này.")
+
+    if not explain:
+        explain.append("Hai đội khá cân bằng về các chỉ số gần đây, tỉ lệ nghiêng nhẹ theo dữ liệu lịch sử tổng thể.")
+
+    # ============ THỐNG KÊ CHI TIẾT (chỉ hiện với tài khoản Premium) ========
+    premium_stats = {
+        "elo": {"home": round(home_elo), "away": round(away_elo)},
+        "form_5_tran": {"home": round(home_form, 2), "away": round(away_form, 2)},
+        "diem_moi_tran": {"home": round(home_ppg, 2), "away": round(away_ppg, 2)},
+        "doi_dau_gan_day": {
+            "so_tran": len(past_meetings),
+            "home_thang": h2h_home_wins,
+            "hoa": h2h_draws,
+            "away_thang": h2h_away_wins,
+        },
+        "ngay_nghi": {"home": round(home_rest_days), "away": round(away_rest_days)},
+        "bat_bai_lien_tiep": {"home": home_streak, "away": away_streak},
+        "ban_thang_tb": {"home": round(home_scored_avg, 2), "away": round(away_scored_avg, 2)},
+        "ban_thua_tb": {"home": round(home_conceded_avg, 2), "away": round(away_conceded_avg, 2)},
+    }
+
     return {
         "doi_nha": doi_nha,
         "doi_khach": doi_khach,
         "thang_nha": _p(2),
         "hoa": _p(1),
         "thang_khach": _p(0),
+        "explain": explain,
+        "premium_stats": premium_stats,
     }

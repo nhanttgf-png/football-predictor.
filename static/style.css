@@ -13,6 +13,15 @@
   --font-body: "Inter", system-ui, sans-serif;
 }
 
+/* QUAN TRỌNG: một số class bên dưới (.modal, .account-user...) tự đặt
+   `display: flex`. Nếu không có rule này, thuộc tính `hidden` mà JS gán
+   (element.hidden = true) sẽ bị các class đó ĐÈ MẤT, khiến modal/khối ẩn
+   luôn hiển thị full màn hình dù JS đã set hidden — gây cảm giác trang
+   "treo" vì người dùng thực ra đang bấm trúng lớp phủ vô hình phía trên. */
+[hidden] {
+  display: none !important;
+}
+
 * {
   box-sizing: border-box;
 }
