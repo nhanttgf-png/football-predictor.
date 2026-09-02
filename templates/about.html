@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Giới thiệu · Dự đoán tỷ lệ bóng đá</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body {
+    margin: 0;
+    background: #0e3b2e;
+    color: #f5f2e8;
+    font-family: "Inter", system-ui, sans-serif;
+    line-height: 1.7;
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 48px 20px 80px;
+  }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  h2 { font-size: 1.1rem; margin-top: 32px; color: #f2b134; }
+  p, li { color: #cdd8d0; font-size: 0.95rem; }
+  a { color: #f2b134; }
+  .updated { color: #9aa69c; font-size: 0.82rem; margin-bottom: 32px; }
+  .back { display: inline-block; margin-bottom: 24px; color: #f2b134; text-decoration: none; }
+  .author-box {
+    margin-top: 12px;
+    padding: 16px 18px;
+    background: rgba(245, 242, 232, 0.06);
+    border-radius: 10px;
+    border: 1px solid rgba(245, 242, 232, 0.1);
+  }
+  .author-box p { margin: 4px 0; }
+</style>
+</head>
+<body>
+  <main>
+    <a class="back" href="/">← Về trang chủ</a>
+    <h1>Giới thiệu</h1>
+    <p class="updated">Cập nhật lần cuối: {{ updated_date or "2026" }}</p>
+
+    <p>Dự đoán tỷ lệ bóng đá là một dự án cá nhân được xây dựng với mong muốn giúp người xem thể thao có cái nhìn rõ ràng hơn, dựa trên dữ liệu, về khả năng xảy ra của một trận đấu — thay vì chỉ dựa vào cảm tính hay tin đồn. Đây là công cụ mang tính thống kê và tham khảo, không phải lời khuyên cá cược.</p>
+
+    <h2>Vì sao dự án này ra đời</h2>
+    <p>Bóng đá luôn có yếu tố bất ngờ, nhưng đằng sau mỗi trận đấu là rất nhiều dữ liệu: phong độ gần đây, lịch sử đối đầu, lợi thế sân nhà, mức độ ổn định của từng đội... Dự án này ra đời để tổng hợp những dữ liệu đó lại thành một con số dễ hiểu, giúp người xem có thêm góc nhìn khách quan trước mỗi trận đấu. Về lâu dài, mục tiêu là mở rộng cách tiếp cận này sang các bộ môn thể thao khác, không chỉ riêng bóng đá.</p>
+
+    <h2>Mô hình hoạt động như thế nào</h2>
+    <p>Hệ thống sử dụng mô hình học máy Random Forest, được huấn luyện trên dữ liệu nhiều mùa giải gần nhất. Một số yếu tố chính được đưa vào mô hình:</p>
+    <ul>
+      <li><strong>Chỉ số Elo</strong> — đánh giá sức mạnh tương đối giữa hai đội, được cập nhật liên tục sau mỗi trận.</li>
+      <li><strong>Phong độ gần đây</strong> — kết quả và hiệu suất ghi bàn trong các trận gần nhất của mỗi đội.</li>
+      <li><strong>Lịch sử đối đầu (H2H)</strong> — xu hướng kết quả giữa hai đội trong quá khứ.</li>
+      <li><strong>Số ngày nghỉ giữa các trận</strong> — ảnh hưởng đến thể lực và sự chuẩn bị của đội bóng.</li>
+      <li><strong>Lợi thế sân nhà</strong> — yếu tố luôn được tính đến trong bóng đá.</li>
+    </ul>
+    <p>Xác suất đầu ra được hiệu chỉnh (calibrated) để phản ánh sát hơn tỷ lệ thắng – hòa – thua thực tế, thay vì chỉ đơn thuần là điểm số dự đoán thô từ mô hình.</p>
+
+    <h2>Người thực hiện</h2>
+    <div class="author-box">
+      <p><strong>Nguyễn Phúc Thiện Nhân</strong></p>
+      <p>Người yêu thích lập trình và thể thao, tự tìm hiểu và xây dựng dự án này trong thời gian rảnh.</p>
+      <p><a href="https://www.facebook.com/profile.php?id=61588327932157" target="_blank" rel="noopener">Facebook cá nhân</a></p>
+    </div>
+
+    <h2>Lưu ý quan trọng</h2>
+    <p>Mọi kết quả dự đoán trên trang chỉ mang tính chất thống kê và giải trí, được tính toán dựa trên dữ liệu lịch sử. Trang không liên kết với bất kỳ nhà cái hay tổ chức cá cược nào, và không khuyến khích người dùng sử dụng thông tin này cho mục đích cá cược dưới bất kỳ hình thức nào. Kết quả một trận đấu thể thao luôn có thể khác với dự đoán của mô hình.</p>
+
+    <h2>Góp ý</h2>
+    <p>Nếu bạn có góp ý, phát hiện lỗi, hoặc muốn trao đổi thêm về dự án, vui lòng liên hệ qua Facebook ở trên.</p>
+  </main>
+</body>
+</html>

@@ -192,7 +192,9 @@ def privacy_page():
 @app.route("/terms")
 def terms_page():
     return render_template("terms.html")
-
+@app.route("/about")
+def about_page():
+    return render_template("about.html")
 
 @app.route("/")
 def index():
