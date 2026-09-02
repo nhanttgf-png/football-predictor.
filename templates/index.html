@@ -14,6 +14,19 @@
   <div class="floodlight"></div>
 
   <main class="wrap">
+    <div class="account-bar">
+      <div id="account-guest" class="account-guest">
+        <button id="btn-open-login" class="btn-link">Đăng nhập</button>
+        <span class="account-sep">·</span>
+        <button id="btn-open-register" class="btn-link">Đăng ký</button>
+      </div>
+      <div id="account-user" class="account-user" hidden>
+        <span id="account-email" class="account-email"></span>
+        <span id="account-badge" class="account-badge" hidden>⭐ Premium</span>
+        <button id="btn-logout" class="btn-link">Đăng xuất</button>
+      </div>
+    </div>
+
     <header class="header">
       <p class="eyebrow">Premier League · Mùa 2017–2026</p>
       <h1 class="title">Đội nào <span class="title-accent">thắng</span>?</h1>
@@ -37,6 +50,8 @@
         </select>
       </div>
     </section>
+
+    <p id="usage-note" class="usage-note"></p>
 
     <div class="action-row">
       <button id="btn-predict" class="btn-predict" disabled>Xem tỷ lệ</button>
@@ -63,8 +78,67 @@
           <div class="bar-pct" id="pct-away"></div>
         </div>
       </div>
+
+      <div class="explain-block">
+        <p class="explain-title">Vì sao dự đoán như vậy?</p>
+        <ul id="explain-list" class="explain-list"></ul>
+      </div>
+
+      <div id="premium-block" class="premium-block">
+        <div id="premium-locked" class="premium-locked" hidden>
+          <p class="premium-locked-title">🔒 Thống kê chi tiết (Premium)</p>
+          <p class="premium-locked-desc">Elo, phong độ 5 trận gần nhất, đối đầu lịch sử, số ngày nghỉ, chuỗi bất bại của cả hai đội.</p>
+          <button id="btn-upgrade" class="btn-upgrade">Nâng cấp Premium</button>
+        </div>
+        <div id="premium-stats" class="premium-stats" hidden>
+          <p class="premium-stats-title">📊 Thống kê chi tiết</p>
+          <table class="stats-table">
+            <thead>
+              <tr><th></th><th id="stats-col-home"></th><th id="stats-col-away"></th></tr>
+            </thead>
+            <tbody id="stats-tbody"></tbody>
+          </table>
+        </div>
+      </div>
     </section>
   </main>
+
+  <div id="upgrade-modal" class="modal" hidden>
+    <div class="modal-card">
+      <p class="modal-title">Nâng cấp Premium</p>
+      <p class="modal-desc">
+        Mở khoá dự đoán không giới hạn mỗi ngày + thống kê chi tiết (Elo,
+        phong độ, đối đầu lịch sử...). Bạn sẽ được chuyển tới trang thanh
+        toán an toàn của Stripe.
+      </p>
+      <p id="upgrade-modal-error" class="error-msg" hidden></p>
+      <div class="modal-actions">
+        <button id="btn-modal-cancel" class="btn-secondary">Để sau</button>
+        <button id="btn-modal-confirm" class="btn-upgrade">Thanh toán qua Stripe</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="auth-modal" class="modal" hidden>
+    <div class="modal-card">
+      <p class="modal-title" id="auth-modal-title">Đăng nhập</p>
+      <form id="auth-form" class="auth-form">
+        <label class="auth-label" for="auth-email">Email</label>
+        <input id="auth-email" class="auth-input" type="email" autocomplete="email" required>
+        <label class="auth-label" for="auth-password">Mật khẩu</label>
+        <input id="auth-password" class="auth-input" type="password" autocomplete="current-password" required minlength="6">
+        <p id="auth-error" class="error-msg" hidden></p>
+        <div class="modal-actions">
+          <button type="button" id="btn-auth-cancel" class="btn-secondary">Huỷ</button>
+          <button type="submit" id="btn-auth-submit" class="btn-upgrade">Đăng nhập</button>
+        </div>
+      </form>
+      <p class="auth-switch">
+        <span id="auth-switch-text">Chưa có tài khoản?</span>
+        <button type="button" id="btn-auth-switch" class="btn-link">Đăng ký</button>
+      </p>
+    </div>
+  </div>
 
   <footer class="footer">
     <p>Dữ liệu: FBref · Mô hình: Random Forest (Elo + phong độ, xác suất đã hiệu chỉnh) · Chỉ mang tính tham khảo, không phải lời khuyên cá cược.</p>

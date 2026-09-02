@@ -18,9 +18,16 @@ LƯU Ý (sửa 2 lỗi so với bản trước):
 
 import os
 import logging
+import uuid
+from datetime import date
 
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, session
+from flask_login import current_user
 
+from extensions import db, login_manager
+from db_models import User
+from auth import auth_bp
+from payments import payments_bp
 from model import load_or_train_model, predict_match
 
 logging.basicConfig(
@@ -31,6 +38,77 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+# Cần secret key để ký cookie session (đăng nhập + định danh khách ẩn danh).
+# Ở production PHẢI đặt biến môi trường SECRET_KEY, không dùng giá trị
+# mặc định này (ai biết giá trị mặc định có thể giả mạo cookie đăng nhập).
+app.secret_key = os.environ.get("SECRET_KEY", "doi-secret-key-nay-khi-deploy-that")
+
+# ==================== DATABASE (tài khoản, trạng thái Premium) ====================
+basedir = os.path.abspath(os.path.dirname(__file__))
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
+    "DATABASE_URL", "sqlite:///" + os.path.join(basedir, "app.db")
+)
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+db.init_app(app)
+login_manager.init_app(app)
+# API trả JSON, không phải trang HTML có form đăng nhập -> khi chưa đăng
+# nhập mà gọi route @login_required, không redirect (mặc định của
+# Flask-Login) mà chỉ cần trả 401 cho FE tự xử lý.
+login_manager.login_view = None
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+
+@login_manager.unauthorized_handler
+def unauthorized():
+    return jsonify({"error": "Vui lòng đăng nhập trước."}), 401
+
+
+with app.app_context():
+    db.create_all()
+
+app.register_blueprint(auth_bp)
+app.register_blueprint(payments_bp)
+
+# ==================== GIỚI HẠN LƯỢT DÙNG MIỄN PHÍ (KHÁCH CHƯA ĐĂNG NHẬP) ====
+# Với khách chưa đăng nhập, vẫn cho dùng thử 3 lượt/ngày qua cookie session
+# ẩn danh (như bản trước) — không ép phải đăng ký mới xem được demo. Nhưng
+# lưu ý: đây là bộ nhớ trong tiến trình (in-memory), không sống sót qua
+# restart / không đồng bộ giữa nhiều worker. Người dùng ĐÃ đăng nhập không
+# dùng cơ chế này nữa — sẽ dùng cột free_predictions_used trong DB
+# (db_models.User), bền và đúng khi chạy nhiều worker.
+FREE_DAILY_LIMIT = 3
+_guest_usage_store = {}  # { session_uid: {"date": "YYYY-MM-DD", "count": int} }
+
+
+def _get_guest_id() -> str:
+    if "uid" not in session:
+        session["uid"] = uuid.uuid4().hex
+        session.permanent = True
+    return session["uid"]
+
+
+def _get_guest_usage() -> dict:
+    today = date.today().isoformat()
+    uid = _get_guest_id()
+    rec = _guest_usage_store.get(uid)
+    if rec is None or rec["date"] != today:
+        rec = {"date": today, "count": 0}
+        _guest_usage_store[uid] = rec
+    return rec
+
+
+def _guest_usage_payload(rec: dict) -> dict:
+    return {
+        "limit": FREE_DAILY_LIMIT,
+        "used": rec["count"],
+        "remaining": max(0, FREE_DAILY_LIMIT - rec["count"]),
+        "premium": False,
+    }
 
 # Không train ngay khi import module, vì trên các nền tảng deploy (Render,
 # Railway...) việc tải dữ liệu FBref có thể mất khá lâu, dễ khiến server bị
@@ -76,6 +154,40 @@ def api_teams():
     return jsonify({"teams": teams})
 
 
+@app.route("/api/usage")
+def api_usage():
+    """Số lượt dự đoán miễn phí còn lại trong ngày + trạng thái Premium.
+    Ưu tiên dữ liệu tài khoản (DB) nếu đã đăng nhập, không thì dùng cookie
+    ẩn danh cho khách."""
+    if current_user.is_authenticated:
+        return jsonify(current_user.usage_dict(FREE_DAILY_LIMIT))
+    return jsonify(_guest_usage_payload(_get_guest_usage()))
+
+
+@app.route("/api/upgrade", methods=["POST"])
+def api_upgrade():
+    """
+    CHỈ dùng để TEST LOCAL khi bạn chưa cấu hình Stripe (STRIPE_SECRET_KEY
+    trống) — set biến môi trường ENABLE_DEMO_UPGRADE=1 để bật. Mặc định bị
+    tắt vì đây KHÔNG phải xác nhận thanh toán thật; nếu bật ở production,
+    bất kỳ ai gọi API này cũng tự cấp Premium miễn phí cho chính họ.
+    Thanh toán thật đi qua /api/create-checkout-session (payments.py) và
+    chỉ được xác nhận qua webhook đã ký của Stripe (/api/stripe-webhook).
+    """
+    if os.environ.get("ENABLE_DEMO_UPGRADE") != "1":
+        return jsonify({
+            "error": "Endpoint demo này đang tắt. Dùng nút Nâng cấp Premium "
+                     "thật (yêu cầu đăng nhập) để thanh toán qua Stripe."
+        }), 403
+    if not current_user.is_authenticated:
+        return jsonify({"error": "Vui lòng đăng nhập trước."}), 401
+
+    current_user.is_premium = True
+    db.session.commit()
+    return jsonify({"message": "Đã nâng cấp Premium (demo, chỉ để test local).",
+                     "usage": current_user.usage_dict(FREE_DAILY_LIMIT)})
+
+
 @app.route("/api/predict", methods=["POST"])
 def api_predict():
     """
@@ -91,6 +203,21 @@ def api_predict():
     if doi_nha == doi_khach:
         return jsonify({"error": "Hai đội phải khác nhau."}), 400
 
+    is_logged_in = current_user.is_authenticated
+    guest_rec = None if is_logged_in else _get_guest_usage()
+
+    can_predict = current_user.can_predict(FREE_DAILY_LIMIT) if is_logged_in else guest_rec["count"] < FREE_DAILY_LIMIT
+    is_premium = current_user.is_premium if is_logged_in else False
+
+    if not can_predict:
+        usage = current_user.usage_dict(FREE_DAILY_LIMIT) if is_logged_in else _guest_usage_payload(guest_rec)
+        return jsonify({
+            "error": f"Bạn đã dùng hết {FREE_DAILY_LIMIT} lượt dự đoán miễn phí hôm nay. "
+                     "Nâng cấp Premium để dự đoán không giới hạn và xem thống kê chi tiết.",
+            "limit_reached": True,
+            "usage": usage,
+        }), 402
+
     try:
         model, team_state, _, _ = get_model()
     except RuntimeError as e:
@@ -104,6 +231,18 @@ def api_predict():
         logger.error("Lỗi khi dự đoán: %s", e, exc_info=True)
         return jsonify({"error": "Có lỗi xảy ra, vui lòng thử lại."}), 500
 
+    if is_logged_in:
+        current_user.register_prediction()
+        db.session.commit()
+        usage = current_user.usage_dict(FREE_DAILY_LIMIT)
+    else:
+        guest_rec["count"] += 1
+        usage = _guest_usage_payload(guest_rec)
+
+    if not is_premium:
+        result["premium_stats"] = None  # chặn thống kê chi tiết với tài khoản/khách free
+
+    result["usage"] = usage
     return jsonify(result)
 
 

@@ -4,3 +4,6 @@ pandas
 numpy
 scikit-learn==1.9.0
 soccerdata
+flask-sqlalchemy
+flask-login
+stripe
