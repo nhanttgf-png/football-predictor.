@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin · Cấp Premium thủ công</title>
+<style>
+  :root {
+    --pitch-dark: #0e3b2e;
+    --pitch-light: #164d3c;
+    --chalk: #f5f2e8;
+    --chalk-dim: #cdd8d0;
+    --amber: #f2b134;
+    --danger: #e1523d;
+    --ink: #0a1a14;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--pitch-dark);
+    color: var(--chalk);
+    font-family: system-ui, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 40px 16px;
+  }
+  .card {
+    width: 100%;
+    max-width: 420px;
+    background: var(--ink);
+    border: 1px solid rgba(245, 242, 232, 0.15);
+    border-radius: 16px;
+    padding: 28px;
+  }
+  h1 { font-size: 1.3rem; margin: 0 0 4px; }
+  p.desc { color: var(--chalk-dim); font-size: 0.85rem; margin: 0 0 20px; }
+  label { display: block; font-size: 0.85rem; margin: 14px 0 6px; color: var(--chalk-dim); }
+  input {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(245, 242, 232, 0.25);
+    background: rgba(245, 242, 232, 0.06);
+    color: var(--chalk);
+    font-size: 0.95rem;
+  }
+  .actions { display: flex; gap: 10px; margin-top: 20px; }
+  button {
+    flex: 1;
+    padding: 11px 14px;
+    border-radius: 8px;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  #btn-grant { background: var(--amber); color: var(--ink); }
+  #btn-revoke { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+  #msg {
+    margin-top: 16px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    display: none;
+  }
+  #msg.ok { display: block; background: rgba(46, 160, 67, 0.15); color: #7ee08a; }
+  #msg.err { display: block; background: rgba(225, 82, 61, 0.15); color: #ff9b8a; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Cấp Premium thủ công</h1>
+    <p class="desc">Dùng sau khi bạn đã tự kiểm tra sao kê ngân hàng thấy khách đã chuyển khoản đúng nội dung.</p>
+
+    <label for="token">Mật khẩu admin</label>
+    <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="off">
+
+    <label for="email">Email khách hàng</label>
+    <input id="email" type="email" placeholder="ten@vidu.com" autocomplete="off">
+
+    <div class="actions">
+      <button id="btn-grant">Cấp Premium</button>
+      <button id="btn-revoke">Thu hồi</button>
+    </div>
+
+    <p id="msg"></p>
+  </div>
+
+  <script>
+    const tokenInput = document.getElementById("token");
+    const emailInput = document.getElementById("email");
+    const msg = document.getElementById("msg");
+
+    // Chỉ lưu mật khẩu admin ở trình duyệt CỦA BẠN để đỡ phải gõ lại mỗi
+    // lần — không gửi đi đâu ngoài API /api/admin/* của chính server này.
+    tokenInput.value = localStorage.getItem("admin_token") || "";
+    tokenInput.addEventListener("change", () => {
+      localStorage.setItem("admin_token", tokenInput.value);
+    });
+
+    function showMsg(text, ok) {
+      msg.textContent = text;
+      msg.className = ok ? "ok" : "err";
+    }
+
+    async function call(endpoint) {
+      const email = emailInput.value.trim();
+      if (!email) {
+        showMsg("Nhập email trước đã.", false);
+        return;
+      }
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Admin-Token": tokenInput.value,
+          },
+          body: JSON.stringify({ email }),
+        });
+        const data = await res.json();
+        showMsg(data.message || data.error || "Có lỗi xảy ra.", res.ok);
+      } catch (err) {
+        showMsg("Không kết nối được tới server.", false);
+      }
+    }
+
+    document.getElementById("btn-grant").addEventListener("click", () => call("/api/admin/grant-premium"));
+    document.getElementById("btn-revoke").addEventListener("click", () => call("/api/admin/revoke-premium"));
+  </script>
+</body>
+</html>

@@ -20,14 +20,16 @@ import os
 import logging
 import uuid
 from datetime import date
+from urllib.parse import quote
 
 from flask import Flask, render_template, request, jsonify, session
-from flask_login import current_user
+from flask_login import current_user, login_required
 
 from extensions import db, login_manager
 from db_models import User
 from auth import auth_bp
 from payments import payments_bp
+from admin import admin_bp
 from model import load_or_train_model, predict_match
 
 logging.basicConfig(
@@ -73,6 +75,51 @@ with app.app_context():
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(payments_bp)
+app.register_blueprint(admin_bp)
+
+# ==================== NÂNG CẤP PREMIUM QUA CHUYỂN KHOẢN (QR TĨNH) ====
+# Cách này KHÔNG tự xác nhận thanh toán (khác Stripe ở payments.py) — sau
+# khi khách chuyển khoản, ADMIN tự kiểm tra sao kê ngân hàng rồi cấp
+# Premium thủ công qua trang /admin (xem admin.py). Cấu hình 3 biến môi
+# trường dưới đây trên Render (Settings > Environment):
+#   BANK_ID            Mã ngân hàng theo chuẩn VietQR, vd "MB", "VCB",
+#                       "TCB"... (tra đầy đủ tại https://api.vietqr.io/v2/banks)
+#   BANK_ACCOUNT_NO     Số tài khoản nhận tiền
+#   BANK_ACCOUNT_NAME   Tên chủ tài khoản (không dấu, đúng như trên tài khoản)
+# Giá gói có thể đổi qua biến PREMIUM_PRICE_VND (mặc định 19000).
+BANK_ID = os.environ.get("BANK_ID", "")
+BANK_ACCOUNT_NO = os.environ.get("BANK_ACCOUNT_NO", "")
+BANK_ACCOUNT_NAME = os.environ.get("BANK_ACCOUNT_NAME", "")
+PREMIUM_PRICE_VND = int(os.environ.get("PREMIUM_PRICE_VND", "19000"))
+
+
+@app.route("/api/premium-qr")
+@login_required
+def api_premium_qr():
+    """Trả về thông tin QR chuyển khoản (dùng ảnh QR động của VietQR.io,
+    không cần API key) để FE hiển thị trong modal nâng cấp Premium.
+    Nội dung chuyển khoản gắn ID của user để admin đối chiếu khi duyệt."""
+    if not BANK_ID or not BANK_ACCOUNT_NO:
+        return jsonify({
+            "error": "Server chưa cấu hình tài khoản ngân hàng nhận Premium "
+                     "(thiếu BANK_ID / BANK_ACCOUNT_NO)."
+        }), 500
+
+    transfer_content = f"PREMIUM {current_user.id}"
+    qr_url = (
+        f"https://img.vietqr.io/image/{BANK_ID}-{BANK_ACCOUNT_NO}-compact2.png"
+        f"?amount={PREMIUM_PRICE_VND}"
+        f"&addInfo={quote(transfer_content)}"
+        f"&accountName={quote(BANK_ACCOUNT_NAME)}"
+    )
+    return jsonify({
+        "qr_url": qr_url,
+        "bank_id": BANK_ID,
+        "account_no": BANK_ACCOUNT_NO,
+        "account_name": BANK_ACCOUNT_NAME,
+        "amount": PREMIUM_PRICE_VND,
+        "transfer_content": transfer_content,
+    })
 
 # ==================== GIỚI HẠN LƯỢT DÙNG MIỄN PHÍ (KHÁCH CHƯA ĐĂNG NHẬP) ====
 # Với khách chưa đăng nhập, vẫn cho dùng thử 3 lượt/ngày qua cookie session

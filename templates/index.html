@@ -108,13 +108,24 @@
       <p class="modal-title">Nâng cấp Premium</p>
       <p class="modal-desc">
         Mở khoá dự đoán không giới hạn mỗi ngày + thống kê chi tiết (Elo,
-        phong độ, đối đầu lịch sử...). Bạn sẽ được chuyển tới trang thanh
-        toán an toàn của Stripe.
+        phong độ, đối đầu lịch sử...).
       </p>
+      <p id="upgrade-price" class="upgrade-price"></p>
+
+      <div id="upgrade-qr-box" class="upgrade-qr-box" hidden>
+        <img id="upgrade-qr-img" class="upgrade-qr-img" alt="Mã QR chuyển khoản">
+        <div class="upgrade-qr-info">
+          <p><span>Ngân hàng:</span> <b id="upgrade-bank-name"></b></p>
+          <p><span>Số tài khoản:</span> <b id="upgrade-account-no"></b></p>
+          <p><span>Chủ tài khoản:</span> <b id="upgrade-account-name"></b></p>
+          <p><span>Nội dung CK:</span> <b id="upgrade-transfer-content"></b></p>
+        </div>
+        <p class="upgrade-qr-note">Quét mã bằng app ngân hàng bất kỳ (đã tự điền sẵn số tiền + nội dung). Sau khi chuyển khoản, tài khoản sẽ được nâng cấp Premium trong ít giờ sau khi admin xác nhận.</p>
+      </div>
+
       <p id="upgrade-modal-error" class="error-msg" hidden></p>
       <div class="modal-actions">
         <button id="btn-modal-cancel" class="btn-secondary">Để sau</button>
-        <button id="btn-modal-confirm" class="btn-upgrade">Thanh toán qua Stripe</button>
       </div>
     </div>
   </div>

@@ -31,7 +31,13 @@ const upgradeModal = document.getElementById("upgrade-modal");
 const upgradeModalError = document.getElementById("upgrade-modal-error");
 const btnUpgrade = document.getElementById("btn-upgrade");
 const btnModalCancel = document.getElementById("btn-modal-cancel");
-const btnModalConfirm = document.getElementById("btn-modal-confirm");
+const upgradePrice = document.getElementById("upgrade-price");
+const upgradeQrBox = document.getElementById("upgrade-qr-box");
+const upgradeQrImg = document.getElementById("upgrade-qr-img");
+const upgradeBankName = document.getElementById("upgrade-bank-name");
+const upgradeAccountNo = document.getElementById("upgrade-account-no");
+const upgradeAccountName = document.getElementById("upgrade-account-name");
+const upgradeTransferContent = document.getElementById("upgrade-transfer-content");
 
 // ---- Khối kết quả chi tiết ----
 const explainList = document.getElementById("explain-list");
@@ -208,47 +214,45 @@ async function refreshUsageNote() {
 
 // ==================== NÂNG CẤP PREMIUM (Stripe Checkout) ====================
 
-function openUpgradeModal() {
+async function openUpgradeModal() {
   upgradeModalError.hidden = true;
   if (!currentUser) {
     closeUpgradeModal();
     openAuthModal("login");
     return;
   }
+
+  upgradeQrBox.hidden = true;
   upgradeModal.hidden = false;
+
+  try {
+    const res = await fetch("/api/premium-qr");
+    const data = await res.json();
+
+    if (!res.ok) {
+      upgradeModalError.textContent = data.error || "Không tải được thông tin thanh toán.";
+      upgradeModalError.hidden = false;
+      return;
+    }
+
+    upgradePrice.textContent = `${data.amount.toLocaleString("vi-VN")}đ / tháng`;
+    upgradeQrImg.src = data.qr_url;
+    upgradeBankName.textContent = data.bank_id;
+    upgradeAccountNo.textContent = data.account_no;
+    upgradeAccountName.textContent = data.account_name;
+    upgradeTransferContent.textContent = data.transfer_content;
+    upgradeQrBox.hidden = false;
+  } catch (err) {
+    upgradeModalError.textContent = "Không kết nối được tới server.";
+    upgradeModalError.hidden = false;
+  }
 }
 
 function closeUpgradeModal() {
   upgradeModal.hidden = true;
 }
 
-async function confirmUpgrade() {
-  upgradeModalError.hidden = true;
-  btnModalConfirm.disabled = true;
-  btnModalConfirm.textContent = "Đang chuyển hướng...";
-
-  try {
-    const res = await fetch("/api/create-checkout-session", { method: "POST" });
-    const data = await res.json();
-
-    if (!res.ok) {
-      upgradeModalError.textContent = data.error || "Không tạo được phiên thanh toán.";
-      upgradeModalError.hidden = false;
-      return;
-    }
-
-    window.location.href = data.url;
-  } catch (err) {
-    upgradeModalError.textContent = "Không kết nối được tới server.";
-    upgradeModalError.hidden = false;
-  } finally {
-    btnModalConfirm.disabled = false;
-    btnModalConfirm.textContent = "Thanh toán qua Stripe";
-  }
-}
-
 btnModalCancel.addEventListener("click", closeUpgradeModal);
-btnModalConfirm.addEventListener("click", confirmUpgrade);
 document.addEventListener("click", (e) => {
   if (e.target && e.target.id === "btn-upgrade") {
     openUpgradeModal();
