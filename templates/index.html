@@ -8,10 +8,25 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+{% if adsense_client %}
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense_client }}" crossorigin="anonymous"></script>
+{% endif %}
 </head>
 <body>
 
   <div class="floodlight"></div>
+
+  {% if adsense_client and adsense_slot_top %}
+  <div class="ad-slot ad-slot-top">
+    <ins class="adsbygoogle"
+         style="display:block"
+         data-ad-client="{{ adsense_client }}"
+         data-ad-slot="{{ adsense_slot_top }}"
+         data-ad-format="auto"
+         data-full-width-responsive="true"></ins>
+    <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+  </div>
+  {% endif %}
 
   <main class="wrap">
     <div class="account-bar">
@@ -84,6 +99,18 @@
         <ul id="explain-list" class="explain-list"></ul>
       </div>
 
+      {% if adsense_client and adsense_slot_mid %}
+      <div class="ad-slot ad-slot-mid">
+        <ins class="adsbygoogle"
+             style="display:block"
+             data-ad-client="{{ adsense_client }}"
+             data-ad-slot="{{ adsense_slot_mid }}"
+             data-ad-format="auto"
+             data-full-width-responsive="true"></ins>
+        <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+      </div>
+      {% endif %}
+
       <div id="premium-block" class="premium-block">
         <div id="premium-locked" class="premium-locked" hidden>
           <p class="premium-locked-title">🔒 Thống kê chi tiết (Premium)</p>
@@ -151,9 +178,22 @@
     </div>
   </div>
 
+  {% if adsense_client and adsense_slot_footer %}
+  <div class="ad-slot ad-slot-footer">
+    <ins class="adsbygoogle"
+         style="display:block"
+         data-ad-client="{{ adsense_client }}"
+         data-ad-slot="{{ adsense_slot_footer }}"
+         data-ad-format="auto"
+         data-full-width-responsive="true"></ins>
+    <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+  </div>
+  {% endif %}
+
   <footer class="footer">
     <p>Dữ liệu: FBref · Mô hình: Random Forest (Elo + phong độ, xác suất đã hiệu chỉnh) · Chỉ mang tính tham khảo, không phải lời khuyên cá cược.</p>
     <p id="model-accuracy-note"></p>
+    <p class="footer-links"><a href="/privacy">Chính sách bảo mật</a> · <a href="/terms">Điều khoản sử dụng</a></p>
   </footer>
 
   <script src="{{ url_for('static', filename='script.js') }}"></script>

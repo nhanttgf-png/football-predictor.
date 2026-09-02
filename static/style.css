@@ -546,6 +546,24 @@ body {
   padding: 0 24px;
 }
 
+.footer-links {
+  margin-top: 8px;
+}
+
+.footer-links a {
+  color: var(--chalk-dim);
+  text-decoration: underline;
+}
+
+.ad-slot {
+  width: 100%;
+  max-width: 720px;
+  margin: 16px auto;
+  padding: 0 16px;
+  text-align: center;
+  overflow: hidden;
+}
+
 @media (max-width: 520px) {
   .picker-card {
     grid-template-columns: 1fr;

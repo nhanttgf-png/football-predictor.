@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chính sách bảo mật · Dự đoán tỷ lệ bóng đá</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body {
+    margin: 0;
+    background: #0e3b2e;
+    color: #f5f2e8;
+    font-family: "Inter", system-ui, sans-serif;
+    line-height: 1.7;
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 48px 20px 80px;
+  }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  h2 { font-size: 1.1rem; margin-top: 32px; color: #f2b134; }
+  p, li { color: #cdd8d0; font-size: 0.95rem; }
+  a { color: #f2b134; }
+  .updated { color: #9aa69c; font-size: 0.82rem; margin-bottom: 32px; }
+  .back { display: inline-block; margin-bottom: 24px; color: #f2b134; text-decoration: none; }
+</style>
+</head>
+<body>
+  <main>
+    <a class="back" href="/">← Về trang chủ</a>
+    <h1>Chính sách bảo mật</h1>
+    <p class="updated">Cập nhật lần cuối: {{ updated_date or "2026" }}</p>
+
+    <p>Trang web Dự đoán tỷ lệ bóng đá ("chúng tôi") tôn trọng quyền riêng tư của người dùng. Chính sách này giải thích chúng tôi thu thập, sử dụng và bảo vệ thông tin gì khi bạn sử dụng dịch vụ.</p>
+
+    <h2>Thông tin chúng tôi thu thập</h2>
+    <ul>
+      <li>Email và mật khẩu (đã băm, không lưu dạng gốc) khi bạn đăng ký tài khoản.</li>
+      <li>Số lượt dự đoán đã dùng trong ngày, trạng thái Premium.</li>
+      <li>Với khách chưa đăng nhập: một mã định danh ẩn danh lưu trong cookie trình duyệt để giới hạn lượt dùng thử miễn phí.</li>
+    </ul>
+
+    <h2>Cách chúng tôi sử dụng thông tin</h2>
+    <p>Thông tin trên chỉ dùng để vận hành tài khoản, tính năng Premium và giới hạn lượt dùng miễn phí. Chúng tôi không bán hoặc chia sẻ thông tin cá nhân của bạn cho bên thứ ba nhằm mục đích tiếp thị.</p>
+
+    <h2>Quảng cáo và cookie</h2>
+    <p>Trang có thể hiển thị quảng cáo từ Google AdSense. Google và các đối tác quảng cáo có thể sử dụng cookie để hiển thị quảng cáo phù hợp dựa trên lượt truy cập của bạn vào trang này và các trang khác trên Internet. Bạn có thể tắt cookie quảng cáo cá nhân hoá tại <a href="https://adssettings.google.com" target="_blank" rel="noopener">Cài đặt quảng cáo của Google</a>.</p>
+
+    <h2>Thanh toán</h2>
+    <p>Khi nâng cấp Premium qua chuyển khoản ngân hàng, chúng tôi chỉ nhận được nội dung chuyển khoản và số tiền hiển thị trên sao kê ngân hàng của chính chúng tôi — không truy cập thông tin thẻ hoặc tài khoản ngân hàng của bạn.</p>
+
+    <h2>Liên hệ</h2>
+    <p>Nếu có câu hỏi về chính sách này, vui lòng liên hệ qua email hiển thị trên trang chủ (nếu có) hoặc trực tiếp với quản trị viên trang web.</p>
+  </main>
+</body>
+</html>

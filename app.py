@@ -163,6 +163,47 @@ def _guest_usage_payload(rec: dict) -> dict:
 # train/khôi phục ở LẦN GỌI ĐẦU TIÊN tới get_model().
 _state = {"model": None, "team_state": None, "teams": None, "metrics": None}
 
+# ==================== GOOGLE ADSENSE ====================
+# Chỉ hiện quảng cáo khi ADSENSE_CLIENT được cấu hình (mã dạng ca-pub-...,
+# lấy trong AdSense Dashboard > Sites, sau khi được Google DUYỆT site).
+# Chưa duyệt / chưa set biến này -> toàn bộ script + khung quảng cáo
+# KHÔNG được render, trang chạy y như hiện tại, không có gì thay đổi.
+ADSENSE_CLIENT = os.environ.get("ADSENSE_CLIENT", "")
+ADSENSE_SLOT_TOP = os.environ.get("ADSENSE_SLOT_TOP", "")
+ADSENSE_SLOT_MID = os.environ.get("ADSENSE_SLOT_MID", "")
+ADSENSE_SLOT_FOOTER = os.environ.get("ADSENSE_SLOT_FOOTER", "")
+
+
+@app.route("/ads.txt")
+def ads_txt():
+    """Google AdSense yêu cầu file này ở gốc domain để xác minh quyền sở
+    hữu quảng cáo, tránh bị giả mạo site bán quảng cáo hộ bạn."""
+    if not ADSENSE_CLIENT:
+        return "", 404
+    pub_id = ADSENSE_CLIENT.replace("ca-pub-", "pub-")
+    return f"google.com, {pub_id}, DIRECT, f08c47fec0942fa0\n", 200, {"Content-Type": "text/plain"}
+
+
+@app.route("/privacy")
+def privacy_page():
+    return render_template("privacy.html")
+
+
+@app.route("/terms")
+def terms_page():
+    return render_template("terms.html")
+
+
+@app.route("/")
+def index():
+    return render_template(
+        "index.html",
+        adsense_client=ADSENSE_CLIENT,
+        adsense_slot_top=ADSENSE_SLOT_TOP,
+        adsense_slot_mid=ADSENSE_SLOT_MID,
+        adsense_slot_footer=ADSENSE_SLOT_FOOTER,
+    )
+
 
 def get_model():
     if _state["model"] is None:
@@ -184,11 +225,6 @@ def get_model():
                 metrics.get("accuracy"), metrics.get("log_loss"), metrics.get("model_type"),
             )
     return _state["model"], _state["team_state"], _state["teams"], _state["metrics"]
-
-
-@app.route("/")
-def index():
-    return render_template("index.html")
 
 
 @app.route("/api/teams")

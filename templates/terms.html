@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Điều khoản sử dụng · Dự đoán tỷ lệ bóng đá</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body {
+    margin: 0;
+    background: #0e3b2e;
+    color: #f5f2e8;
+    font-family: "Inter", system-ui, sans-serif;
+    line-height: 1.7;
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 48px 20px 80px;
+  }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  h2 { font-size: 1.1rem; margin-top: 32px; color: #f2b134; }
+  p, li { color: #cdd8d0; font-size: 0.95rem; }
+  a { color: #f2b134; }
+  .updated { color: #9aa69c; font-size: 0.82rem; margin-bottom: 32px; }
+  .back { display: inline-block; margin-bottom: 24px; color: #f2b134; text-decoration: none; }
+</style>
+</head>
+<body>
+  <main>
+    <a class="back" href="/">← Về trang chủ</a>
+    <h1>Điều khoản sử dụng</h1>
+    <p class="updated">Cập nhật lần cuối: {{ updated_date or "2026" }}</p>
+
+    <h2>Mục đích của dịch vụ</h2>
+    <p>Trang web cung cấp tỷ lệ thắng/hoà/thua dựa trên mô hình học máy, huấn luyện từ dữ liệu thống kê các mùa giải Premier League gần nhất. Kết quả <b>chỉ mang tính chất tham khảo</b>, không phải lời khuyên tài chính hay lời khuyên cá cược, và không đảm bảo độ chính xác tuyệt đối.</p>
+
+    <h2>Tài khoản người dùng</h2>
+    <p>Bạn chịu trách nhiệm bảo mật mật khẩu tài khoản của mình. Chúng tôi có quyền tạm khoá tài khoản nếu phát hiện hành vi lạm dụng hệ thống (spam đăng ký, khai thác lỗi để vượt giới hạn dùng thử...).</p>
+
+    <h2>Gói Premium</h2>
+    <p>Gói Premium là dịch vụ trả phí, thanh toán qua chuyển khoản ngân hàng và được kích hoạt thủ công sau khi xác nhận giao dịch. Chúng tôi không hoàn tiền cho các giao dịch đã xác nhận, trừ trường hợp lỗi thu phí trùng hoặc sai sót từ phía hệ thống.</p>
+
+    <h2>Giới hạn trách nhiệm</h2>
+    <p>Chúng tôi không chịu trách nhiệm cho bất kỳ quyết định hoặc tổn thất nào phát sinh từ việc sử dụng thông tin dự đoán trên trang web này, bao gồm nhưng không giới hạn ở các quyết định liên quan đến cá cược.</p>
+
+    <h2>Thay đổi điều khoản</h2>
+    <p>Điều khoản này có thể được cập nhật theo thời gian. Việc tiếp tục sử dụng dịch vụ sau khi điều khoản thay đổi đồng nghĩa bạn chấp nhận các điều khoản mới.</p>
+  </main>
+</body>
+</html>
