@@ -59,6 +59,7 @@
       <button type="button" id="tab-predict" class="view-tab view-tab-active" role="tab" aria-selected="true">Dự đoán trận đấu</button>
       <button type="button" id="tab-leaderboard" class="view-tab" role="tab" aria-selected="false">Bảng xếp hạng</button>
       <button type="button" id="tab-players" class="view-tab" role="tab" aria-selected="false">Cầu thủ</button>
+      <button type="button" id="tab-history" class="view-tab" role="tab" aria-selected="false" hidden>Lịch sử dự đoán</button>
     </div>
 
     <section id="leaderboard-view" class="leaderboard-view" hidden aria-label="Bảng xếp hạng">
@@ -158,6 +159,26 @@
       </div>
     </section>
 
+    <section id="history-view" class="leaderboard-view" hidden aria-label="Lịch sử dự đoán">
+      <p id="history-error" class="error-msg" hidden></p>
+      <p id="history-note" class="leaderboard-note"></p>
+      <div id="history-summary" class="history-summary"></div>
+      <div class="leaderboard-table-wrap">
+        <table class="leaderboard-table">
+          <thead>
+            <tr>
+              <th>Ngày</th>
+              <th class="lb-col-team">Trận đấu</th>
+              <th>AI dự đoán</th>
+              <th>Tỷ số dự đoán</th>
+              <th>Kết quả</th>
+            </tr>
+          </thead>
+          <tbody id="history-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
     <div id="predict-view">
     <section class="picker-card" aria-label="Chọn trận đấu">
       <div class="team-slot">
@@ -203,6 +224,47 @@
           <div class="bar-track"><div id="bar-away" class="bar-fill bar-away"></div></div>
           <div class="bar-pct" id="pct-away"></div>
         </div>
+      </div>
+
+      <div id="confidence-block" class="confidence-block" hidden>
+        <div class="confidence-head">
+          <span class="confidence-title">🧠 Độ tin cậy AI</span>
+          <span id="confidence-badge" class="confidence-badge"></span>
+        </div>
+        <div class="confidence-bar-track">
+          <div id="confidence-bar" class="confidence-bar-fill"></div>
+        </div>
+        <ul id="confidence-reasons" class="confidence-reasons"></ul>
+        <p class="confidence-note">Đây là độ tự tin của mô hình, không phải xác suất thắng chắc chắn.</p>
+      </div>
+
+      <div id="score-block" class="score-block" hidden>
+        <p class="score-title">🎯 Tỷ số dự đoán khả dĩ nhất: <span id="score-best"></span></p>
+        <ul id="score-list" class="score-list"></ul>
+      </div>
+
+      <div id="form-block" class="form-block" hidden>
+        <p class="form-title">📈 Phong độ 5 trận gần nhất</p>
+        <div class="form-cols">
+          <div class="form-col">
+            <p class="form-team" id="form-team-home"></p>
+            <div id="form-dots-home" class="form-dots"></div>
+          </div>
+          <div class="form-col">
+            <p class="form-team" id="form-team-away"></p>
+            <div id="form-dots-away" class="form-dots"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="compare-block" class="compare-block" hidden>
+        <p class="compare-title">⚔️ So sánh hai đội</p>
+        <table class="compare-table">
+          <thead>
+            <tr><th></th><th id="compare-col-home"></th><th id="compare-col-away"></th></tr>
+          </thead>
+          <tbody id="compare-tbody"></tbody>
+        </table>
       </div>
 
       <div class="explain-block">

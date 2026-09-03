@@ -513,6 +513,225 @@ body {
   font-weight: 600;
 }
 
+/* ==================== ĐỘ TIN CẬY AI ==================== */
+.confidence-block {
+  margin-top: 20px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: rgba(245, 242, 232, 0.05);
+  border: 1px solid rgba(245, 242, 232, 0.12);
+}
+
+.confidence-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.confidence-title {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.confidence-badge {
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+.confidence-badge.confidence-high { background: rgba(90, 200, 130, 0.18); color: #6fe0a0; }
+.confidence-badge.confidence-mid { background: rgba(242, 177, 52, 0.18); color: var(--amber); }
+.confidence-badge.confidence-low { background: rgba(225, 82, 61, 0.18); color: var(--home-red); }
+
+.confidence-bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(245, 242, 232, 0.1);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.confidence-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--home-red), var(--amber), #6fe0a0);
+  transition: width 0.4s ease;
+}
+
+.confidence-reasons {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.confidence-reasons li {
+  font-size: 0.82rem;
+  color: var(--chalk-dim);
+  line-height: 1.4;
+}
+
+.confidence-note {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--chalk-dim);
+  opacity: 0.75;
+  font-style: italic;
+}
+
+/* ==================== TỶ SỐ DỰ ĐOÁN ==================== */
+.score-block {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: rgba(245, 242, 232, 0.05);
+  border: 1px solid rgba(245, 242, 232, 0.12);
+}
+
+.score-title {
+  margin: 0 0 10px;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.score-title span {
+  color: var(--amber);
+}
+
+.score-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.score-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(245, 242, 232, 0.08);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+}
+
+.score-item-score {
+  font-weight: 700;
+  color: var(--chalk);
+}
+
+.score-item-pct {
+  color: var(--chalk-dim);
+}
+
+/* ==================== BIỂU ĐỒ PHONG ĐỘ ==================== */
+.form-block {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: rgba(245, 242, 232, 0.05);
+  border: 1px solid rgba(245, 242, 232, 0.12);
+}
+
+.form-title {
+  margin: 0 0 10px;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.form-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.form-team {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+  color: var(--chalk-dim);
+  font-weight: 600;
+}
+
+.form-dots {
+  display: flex;
+  gap: 6px;
+  font-size: 1rem;
+}
+
+.form-dot {
+  cursor: help;
+}
+
+/* ==================== SO SÁNH HAI ĐỘI ==================== */
+.compare-block {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: rgba(245, 242, 232, 0.05);
+  border: 1px solid rgba(245, 242, 232, 0.12);
+}
+
+.compare-title {
+  margin: 0 0 10px;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.compare-table th,
+.compare-table td {
+  padding: 6px 4px;
+  text-align: center;
+  border-bottom: 1px solid rgba(245, 242, 232, 0.1);
+}
+
+.compare-table th:first-child,
+.compare-table td:first-child {
+  text-align: left;
+  color: var(--chalk-dim);
+}
+
+.compare-table th {
+  color: var(--chalk);
+  font-weight: 700;
+}
+
+/* ==================== LỊCH SỬ DỰ ĐOÁN ==================== */
+.history-summary {
+  margin-bottom: 14px;
+  font-size: 0.88rem;
+  color: var(--chalk-dim);
+}
+
+.history-summary-item strong {
+  color: var(--amber);
+}
+
+.history-pending {
+  color: var(--chalk-dim);
+  font-style: italic;
+}
+
+.history-correct {
+  color: #6fe0a0;
+  font-weight: 700;
+}
+
+.history-wrong {
+  color: var(--home-red);
+  font-weight: 700;
+}
+
 .explain-block {
   margin-top: 24px;
   padding-top: 20px;

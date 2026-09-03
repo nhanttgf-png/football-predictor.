@@ -18,6 +18,32 @@ const playersPositionFilter = document.getElementById("players-position-filter")
 const playersSort = document.getElementById("players-sort");
 const playersTbody = document.getElementById("players-tbody");
 
+// ---- Tab Lịch sử dự đoán ----
+const tabHistory = document.getElementById("tab-history");
+const historyView = document.getElementById("history-view");
+const historyError = document.getElementById("history-error");
+const historyNote = document.getElementById("history-note");
+const historySummary = document.getElementById("history-summary");
+const historyTbody = document.getElementById("history-tbody");
+
+// ---- Khối độ tin cậy / tỷ số / phong độ / so sánh (trong kết quả dự đoán) ----
+const confidenceBlock = document.getElementById("confidence-block");
+const confidenceBadge = document.getElementById("confidence-badge");
+const confidenceBar = document.getElementById("confidence-bar");
+const confidenceReasons = document.getElementById("confidence-reasons");
+const scoreBlock = document.getElementById("score-block");
+const scoreBest = document.getElementById("score-best");
+const scoreList = document.getElementById("score-list");
+const formBlock = document.getElementById("form-block");
+const formTeamHome = document.getElementById("form-team-home");
+const formTeamAway = document.getElementById("form-team-away");
+const formDotsHome = document.getElementById("form-dots-home");
+const formDotsAway = document.getElementById("form-dots-away");
+const compareBlock = document.getElementById("compare-block");
+const compareColHome = document.getElementById("compare-col-home");
+const compareColAway = document.getElementById("compare-col-away");
+const compareTbody = document.getElementById("compare-tbody");
+
 // ---- Cầu thủ nổi bật (trong kết quả dự đoán) ----
 const keyPlayersBlock = document.getElementById("key-players-block");
 const keyPlayersTeamHome = document.getElementById("key-players-team-home");
@@ -119,9 +145,13 @@ function renderAccount() {
     accountUser.hidden = false;
     accountEmail.textContent = currentUser.email;
     accountBadge.hidden = !currentUser.premium;
+    tabHistory.hidden = false;
   } else {
     accountGuest.hidden = false;
     accountUser.hidden = true;
+    tabHistory.hidden = true;
+    // Nếu khách đăng xuất trong lúc đang xem tab lịch sử, quay về tab dự đoán.
+    if (!historyView.hidden) switchToPredictView();
   }
 }
 
@@ -347,6 +377,151 @@ function renderPremiumStats(stats, doiNha, doiKhach) {
   }
 }
 
+function renderConfidence(doTinCay) {
+  if (!doTinCay) {
+    confidenceBlock.hidden = true;
+    return;
+  }
+  confidenceBlock.hidden = false;
+  confidenceBadge.textContent = `${doTinCay.muc} · ${doTinCay.diem}/100`;
+  confidenceBadge.className = "confidence-badge confidence-" +
+    (doTinCay.muc === "CAO" ? "high" : doTinCay.muc === "THẤP" ? "low" : "mid");
+  confidenceBar.style.width = `${doTinCay.diem}%`;
+  confidenceReasons.innerHTML = "";
+  for (const line of doTinCay.ly_do || []) {
+    const li = document.createElement("li");
+    li.textContent = line;
+    confidenceReasons.appendChild(li);
+  }
+}
+
+function renderScoreBlock(tySoChinhXac) {
+  if (!tySoChinhXac || !tySoChinhXac.top5 || !tySoChinhXac.top5.length) {
+    scoreBlock.hidden = true;
+    return;
+  }
+  scoreBlock.hidden = false;
+  scoreBest.textContent = tySoChinhXac.du_doan_nhat || "—";
+  scoreList.innerHTML = "";
+  for (const item of tySoChinhXac.top5) {
+    const li = document.createElement("li");
+    li.innerHTML = `<span class="score-item-score">${item.ty_so}</span><span class="score-item-pct">${item.xac_suat}%</span>`;
+    scoreList.appendChild(li);
+  }
+}
+
+const KET_QUA_ICON = { W: "🟢", D: "🟡", L: "🔴" };
+
+function renderFormDots(container, matches) {
+  container.innerHTML = "";
+  if (!matches || !matches.length) {
+    container.textContent = "Chưa có dữ liệu.";
+    return;
+  }
+  for (const m of matches) {
+    const span = document.createElement("span");
+    span.className = "form-dot form-dot-" + m.ket_qua.toLowerCase();
+    span.textContent = KET_QUA_ICON[m.ket_qua] || "•";
+    span.title = `${m.san === "nha" ? "Sân nhà" : "Sân khách"} vs ${m.doi_thu}: ${m.ty_so}`;
+    container.appendChild(span);
+  }
+}
+
+function renderFormChart(bieuDo, doiNha, doiKhach) {
+  if (!bieuDo) {
+    formBlock.hidden = true;
+    return;
+  }
+  formBlock.hidden = false;
+  formTeamHome.textContent = doiNha;
+  formTeamAway.textContent = doiKhach;
+  renderFormDots(formDotsHome, bieuDo.nha);
+  renderFormDots(formDotsAway, bieuDo.khach);
+}
+
+const COMPARE_LABELS = {
+  elo: "Điểm Elo",
+  phong_do_pct: "Phong độ (%)",
+  ban_thang_tb: "Bàn thắng TB/trận",
+  ban_thua_tb: "Bàn thua TB/trận",
+  win_rate_pct: "Tỷ lệ thắng (%)",
+};
+
+function renderCompare(soSanh, doiNha, doiKhach) {
+  if (!soSanh) {
+    compareBlock.hidden = true;
+    return;
+  }
+  compareBlock.hidden = false;
+  compareColHome.textContent = doiNha;
+  compareColAway.textContent = doiKhach;
+  compareTbody.innerHTML = "";
+  for (const [key, label] of Object.entries(COMPARE_LABELS)) {
+    const row = soSanh[key];
+    if (!row) continue;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${label}</td><td>${row.home}</td><td>${row.away}</td>`;
+    compareTbody.appendChild(tr);
+  }
+}
+
+// ==================== LỊCH SỬ DỰ ĐOÁN ====================
+
+const HISTORY_LABEL = { nha: "Nhà thắng", hoa: "Hòa", khach: "Khách thắng" };
+const HISTORY_PROB_FIELD = { nha: "thang_nha", hoa: "hoa", khach: "thang_khach" };
+
+function historyRowHtml(row) {
+  const ngay = row.created_at ? new Date(row.created_at).toLocaleDateString("vi-VN") : "—";
+  const probField = HISTORY_PROB_FIELD[row.du_doan];
+  const duDoanText = `${HISTORY_LABEL[row.du_doan] || row.du_doan} (${row[probField] ?? ""}%)`;
+  let ketQuaHtml = '<span class="history-pending">Đang chờ kết quả</span>';
+  if (row.ket_qua_thuc_te) {
+    const dung = row.dung;
+    ketQuaHtml = `<span class="history-${dung ? "correct" : "wrong"}">${HISTORY_LABEL[row.ket_qua_thuc_te] || row.ket_qua_thuc_te} ${dung ? "✅" : "❌"}</span>`;
+  }
+  return `
+    <tr>
+      <td>${ngay}</td>
+      <td>${row.doi_nha} vs ${row.doi_khach}</td>
+      <td>${duDoanText}</td>
+      <td>${row.ty_so_du_doan || "—"}</td>
+      <td>${ketQuaHtml}</td>
+    </tr>`;
+}
+
+async function loadHistory() {
+  historyError.hidden = true;
+  historyNote.textContent = "Đang tải lịch sử dự đoán...";
+  historySummary.innerHTML = "";
+  historyTbody.innerHTML = "";
+  try {
+    const res = await fetch("/api/history");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Không tải được lịch sử dự đoán.");
+
+    historyNote.textContent = "";
+    const tk = data.thong_ke || {};
+    if (tk.da_co_ket_qua > 0) {
+      historySummary.innerHTML =
+        `<span class="history-summary-item">Độ chính xác AI: <strong>${tk.ty_le_chinh_xac}%</strong> ` +
+        `(${tk.dung}/${tk.da_co_ket_qua} dự đoán đã có kết quả)</span>`;
+    } else {
+      historySummary.innerHTML =
+        `<span class="history-summary-item">Chưa có dự đoán nào được xác nhận kết quả — kết quả sẽ tự cập nhật khi mô hình được huấn luyện lại với dữ liệu mới.</span>`;
+    }
+
+    if (!data.rows || !data.rows.length) {
+      historyNote.textContent = "Bạn chưa có dự đoán nào. Hãy thử dự đoán 1 trận ở tab \"Dự đoán trận đấu\"!";
+      return;
+    }
+    historyTbody.innerHTML = data.rows.map(historyRowHtml).join("");
+  } catch (err) {
+    historyError.textContent = err.message || "Có lỗi xảy ra khi tải lịch sử.";
+    historyError.hidden = false;
+    historyNote.textContent = "";
+  }
+}
+
 async function loadLeagues() {
   try {
     const res = await fetch("/api/leagues");
@@ -389,7 +564,7 @@ let leaderboardSortLoaded = false;
 let leaderboardSubview = "season"; // "season" | "alltime"
 
 function setActiveTab(activeTab) {
-  for (const tab of [tabPredict, tabLeaderboard, tabPlayers]) {
+  for (const tab of [tabPredict, tabLeaderboard, tabPlayers, tabHistory]) {
     const isActive = tab === activeTab;
     tab.classList.toggle("view-tab-active", isActive);
     tab.setAttribute("aria-selected", isActive ? "true" : "false");
@@ -401,6 +576,7 @@ function switchToPredictView() {
   predictView.hidden = false;
   leaderboardView.hidden = true;
   playersView.hidden = true;
+  historyView.hidden = true;
 }
 
 function switchToLeaderboardView() {
@@ -408,6 +584,7 @@ function switchToLeaderboardView() {
   leaderboardView.hidden = false;
   predictView.hidden = true;
   playersView.hidden = true;
+  historyView.hidden = true;
   loadCurrentLeaderboardView();
 }
 
@@ -416,7 +593,17 @@ function switchToPlayersView() {
   playersView.hidden = false;
   predictView.hidden = true;
   leaderboardView.hidden = true;
+  historyView.hidden = true;
   loadPlayers();
+}
+
+function switchToHistoryView() {
+  setActiveTab(tabHistory);
+  historyView.hidden = false;
+  predictView.hidden = true;
+  leaderboardView.hidden = true;
+  playersView.hidden = true;
+  loadHistory();
 }
 
 function switchToSeasonSubview() {
@@ -577,6 +764,7 @@ function renderLeaderboard(rows) {
 tabPredict.addEventListener("click", switchToPredictView);
 tabLeaderboard.addEventListener("click", switchToLeaderboardView);
 tabPlayers.addEventListener("click", switchToPlayersView);
+tabHistory.addEventListener("click", switchToHistoryView);
 subtabSeason.addEventListener("click", switchToSeasonSubview);
 subtabAlltime.addEventListener("click", switchToAlltimeSubview);
 leaderboardSort.addEventListener("change", loadLeaderboard);
@@ -785,6 +973,10 @@ async function predict() {
     updateBar("bar-away", "pct-away", data.thang_khach);
 
     renderExplain(data.explain);
+    renderConfidence(data.do_tin_cay);
+    renderScoreBlock(data.ty_so_chinh_xac);
+    renderFormChart(data.bieu_do_phong_do, data.doi_nha, data.doi_khach);
+    renderCompare(data.so_sanh, data.doi_nha, data.doi_khach);
     renderKeyPlayers(data.cau_thu_noi_bat, data.doi_nha, data.doi_khach);
     renderPremiumStats(data.premium_stats, data.doi_nha, data.doi_khach);
     renderUsage(data.usage);

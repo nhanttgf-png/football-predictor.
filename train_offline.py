@@ -2,11 +2,21 @@
 train_offline.py
 ----------------
 Script chạy offline để huấn luyện model và lưu cache.
-Sau khi chạy xong, file model_cache.pkl sẽ được tạo ra.
+Sau khi chạy xong, file model_cache*.pkl sẽ được tạo ra.
 Bạn có thể copy file này lên Render để dùng ngay.
 
-Cách dùng:
-    python train_offline.py [--force]
+Cách dùng (KHUYẾN NGHỊ — dùng --league-key, không tự phải nhớ đường dẫn
+cache, tool tự chọn ĐÚNG file cho từng giải, không sợ ghi đè nhầm):
+    python train_offline.py --league-key premier-league
+    python train_offline.py --league-key la-liga
+    python train_offline.py --league-key serie-a
+    python train_offline.py --league-key bundesliga
+    python train_offline.py --league-key ligue-1
+
+(Cách cũ dùng --league "ENG-Premier League" vẫn còn hỗ trợ để tương thích
+ngược, và giờ cũng tự suy ra đúng cache-path tương ứng nếu nhận diện được
+tên giải — nhưng --league-key vẫn AN TOÀN HƠN vì không phụ thuộc việc gõ
+đúng tên giải theo FBref.)
 """
 
 import os
@@ -29,8 +39,11 @@ from model import (
     load_or_train_model,
     CACHE_PATH,
     LEAGUE,
+    LEAGUES,
+    DEFAULT_LEAGUE_KEY,
     SEASONS,
-    CACHE_MAX_AGE_SECONDS
+    CACHE_MAX_AGE_SECONDS,
+    _cache_path,
 )
 
 # Cấu hình logging
@@ -42,6 +55,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _resolve_league_key_by_code(code: str):
+    """Tìm league_key (vd 'la-liga') tương ứng với 1 mã FBref (vd
+    'ESP-La Liga'), dùng cho trường hợp người dùng vẫn gõ --league kiểu
+    cũ thay vì --league-key. Trả về None nếu không khớp giải nào."""
+    for key, cfg in LEAGUES.items():
+        if cfg["code"] == code:
+            return key
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description="Train model bóng đá offline")
     parser.add_argument(
@@ -50,43 +73,94 @@ def main():
         help="Bỏ qua cache hiện có và train lại từ đầu"
     )
     parser.add_argument(
+        "--league-key",
+        type=str,
+        choices=list(LEAGUES.keys()),
+        default=None,
+        help=(
+            "KHUYẾN NGHỊ DÙNG THAM SỐ NÀY: khoá giải đấu như web dùng "
+            f"({', '.join(LEAGUES.keys())}). Tool sẽ tự suy ra đúng tên "
+            "giải (FBref) và đúng file cache tương ứng, tránh ghi đè nhầm "
+            "cache của giải khác."
+        ),
+    )
+    parser.add_argument(
         "--league",
         type=str,
-        default=LEAGUE,
-        help=f"Tên giải đấu (mặc định: {LEAGUE})"
+        default=None,
+        help=(
+            "(Cách cũ) Tên giải đấu theo FBref, vd \"ENG-Premier League\". "
+            "Chỉ dùng khi không dùng --league-key. Nếu bỏ trống cả hai, "
+            f"mặc định là {LEAGUE}."
+        )
     )
     parser.add_argument(
         "--seasons",
         type=str,
         nargs="+",
-        default=SEASONS,
-        help="Danh sách các mùa giải (mặc định: 10 mùa gần nhất)"
+        default=None,
+        help="Danh sách các mùa giải (mặc định: theo cấu hình của giải đó)"
     )
     parser.add_argument(
         "--cache-path",
         type=str,
-        default=CACHE_PATH,
-        help="Đường dẫn lưu cache (mặc định: model_cache.pkl)"
+        default=None,
+        help=(
+            "Đường dẫn lưu cache. Nếu bỏ trống, tool TỰ CHỌN đúng file "
+            "theo giải đấu (vd model_cache_la-liga.pkl) -- chỉ cần tự "
+            "truyền tay tham số này nếu bạn thật sự muốn ghi ra vị trí "
+            "khác với mặc định."
+        )
     )
-    
+
     args = parser.parse_args()
-    
+
+    # ============ SUY RA league_key / league_code / cache_path ĐÚNG ========
+    if args.league_key:
+        league_key = args.league_key
+        league_code = LEAGUES[league_key]["code"]
+    elif args.league:
+        league_code = args.league
+        league_key = _resolve_league_key_by_code(league_code)
+        if league_key is None:
+            logger.warning(
+                "Không nhận diện được \"%s\" khớp với giải nào trong danh "
+                "sách web đang hỗ trợ (%s). Sẽ KHÔNG tự suy ra được cache-path "
+                "đúng -- nếu bạn không tự truyền --cache-path, cache sẽ được "
+                "lưu vào %s (mặc định của Ngoại hạng Anh), có thể ghi đè "
+                "NHẦM cache của giải khác!",
+                league_code, ", ".join(LEAGUES.keys()), CACHE_PATH,
+            )
+    else:
+        league_key = DEFAULT_LEAGUE_KEY
+        league_code = LEAGUE
+
+    seasons = args.seasons or LEAGUES.get(league_key, {}).get("seasons", SEASONS)
+
+    if args.cache_path:
+        cache_path = args.cache_path
+    elif league_key is not None:
+        cache_path = _cache_path(league_key)
+    else:
+        cache_path = CACHE_PATH
+
     logger.info("=" * 70)
     logger.info("BẮT ĐẦU TRAIN MODEL OFFLINE")
-    logger.info(f"League: {args.league}")
-    logger.info(f"Seasons: {args.seasons}")
-    logger.info(f"Cache path: {args.cache_path}")
+    logger.info(f"Giải đấu (key): {league_key or '(không xác định)'}")
+    logger.info(f"Giải đấu (FBref code): {league_code}")
+    logger.info(f"Seasons: {seasons}")
+    logger.info(f"Cache sẽ lưu tại: {cache_path}")
     logger.info("=" * 70)
-    
+
     start_time = time.time()
-    
+
     try:
         # Train model (sẽ train mới nếu force hoặc không có cache)
         model, team_state, teams, metrics = train_model(
-            league=args.league,
-            seasons=args.seasons
+            league=league_code,
+            seasons=seasons
         )
-        
+
         # Lưu cache
         cache_data = {
             "model": model,
@@ -95,15 +169,16 @@ def main():
             "metrics": metrics,
             "trained_at": time.time(),
             "version": "2.0",
-            "league": args.league,
-            "seasons": args.seasons,
+            "league": league_code,
+            "league_key": league_key,
+            "seasons": seasons,
         }
-        
-        with open(args.cache_path, "wb") as f:
+
+        with open(cache_path, "wb") as f:
             pickle.dump(cache_data, f)
-        
+
         elapsed = time.time() - start_time
-        
+
         logger.info("=" * 70)
         logger.info("HOÀN THÀNH TRAIN MODEL OFFLINE")
         logger.info(f"Thời gian train: {elapsed/60:.2f} phút")
@@ -113,23 +188,23 @@ def main():
         logger.info(f"Log loss: {metrics.get('log_loss', 'N/A')}")
         logger.info(f"Số trận train: {metrics.get('so_tran_train', 'N/A')}")
         logger.info(f"Số trận test: {metrics.get('so_tran_test', 'N/A')}")
-        logger.info(f"Cache đã lưu tại: {args.cache_path}")
+        logger.info(f"Cache đã lưu tại: {cache_path}")
         logger.info("=" * 70)
-        
+
         # In thêm thông tin về models đã đánh giá
         if "models_evaluated" in metrics and metrics["models_evaluated"]:
             logger.info("Chi tiết đánh giá các model:")
             for name, scores in metrics["models_evaluated"].items():
                 logger.info(f"  - {name}: acc={scores['accuracy']}%, "
                           f"log_loss={scores['log_loss']}")
-        
+
         # Kiểm tra dung lượng file cache
-        cache_size_mb = os.path.getsize(args.cache_path) / (1024 * 1024)
+        cache_size_mb = os.path.getsize(cache_path) / (1024 * 1024)
         logger.info(f"Dung lượng cache: {cache_size_mb:.2f} MB")
-        
+
         if cache_size_mb > 100:
             logger.warning("Cache > 100MB, có thể vượt giới hạn free tier của Render (512MB RAM)")
-        
+
     except Exception as e:
         logger.error(f"Lỗi trong quá trình train: {e}", exc_info=True)
         sys.exit(1)

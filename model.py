@@ -16,6 +16,7 @@ Phiên bản hoàn chỉnh với nhiều cải tiến:
 import os
 import pickle
 import time
+import math
 import logging
 import warnings
 from datetime import datetime, timedelta
@@ -409,7 +410,12 @@ def _build_features(games: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
     away_total_scored = {}
     home_total_conceded = {}
     away_total_conceded = {}
-    
+
+    # Lịch sử trận gần đây theo từng đội (bất kể sân nhà/khách) — dùng để vẽ
+    # "biểu đồ phong độ" (chuỗi W/D/L) trên FE. Chỉ giữ lại vài trận gần
+    # nhất mỗi đội khi lưu vào team_state cuối cùng (xem bên dưới).
+    recent_matches = {}
+
     rows = []
     
     for idx, g in games.iterrows():
@@ -578,6 +584,20 @@ def _build_features(games: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
         away_total_scored[away] = away_total_scored.get(away, 0) + g["away_score"]
         home_total_conceded[home] = home_total_conceded.get(home, 0) + g["away_score"]
         away_total_conceded[away] = away_total_conceded.get(away, 0) + g["home_score"]
+
+        # Cập nhật lịch sử trận gần đây (cho biểu đồ phong độ W/D/L)
+        home_ket_qua = "W" if g["target"] == 2 else ("D" if g["target"] == 1 else "L")
+        away_ket_qua = "W" if g["target"] == 0 else ("D" if g["target"] == 1 else "L")
+        recent_matches.setdefault(home, []).append({
+            "date": match_date, "doi_thu": away, "san": "nha",
+            "ban_thang": int(g["home_score"]), "ban_thua": int(g["away_score"]),
+            "ket_qua": home_ket_qua,
+        })
+        recent_matches.setdefault(away, []).append({
+            "date": match_date, "doi_thu": home, "san": "khach",
+            "ban_thang": int(g["away_score"]), "ban_thua": int(g["home_score"]),
+            "ket_qua": away_ket_qua,
+        })
         
         # Cập nhật chuỗi bất bại
         if g["target"] == 2:  # Home win
@@ -621,6 +641,8 @@ def _build_features(games: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
         "away_total_scored": away_total_scored,
         "home_total_conceded": home_total_conceded,
         "away_total_conceded": away_total_conceded,
+        # Chỉ giữ 10 trận gần nhất/đội để tiết kiệm dung lượng cache.
+        "recent_matches": {t: v[-10:] for t, v in recent_matches.items()},
     }
     
     logger.info(f"Xây dựng xong {len(df)} rows với {len(FEATURE_COLS)} features")
@@ -1225,6 +1247,109 @@ def predict_match(model, team_state: Dict, doi_nha: str, doi_khach: str) -> Dict
     if not explain:
         explain.append("Hai đội khá cân bằng về các chỉ số gần đây, tỉ lệ nghiêng nhẹ theo dữ liệu lịch sử tổng thể.")
 
+    # ============ DỰ ĐOÁN TỶ SỐ CHÍNH XÁC (Poisson) ============
+    # Ước lượng số bàn kỳ vọng mỗi đội từ TB bàn ghi được của đội này và TB
+    # bàn để thủng của đối thủ (cách làm phổ biến, không cần model riêng),
+    # sau đó dựng phân phối Poisson độc lập cho mỗi bên và ghép lại thành
+    # ma trận xác suất của từng tỷ số cụ thể.
+    lambda_home = max(0.25, (home_scored_avg + away_conceded_avg) / 2)
+    lambda_away = max(0.25, (away_scored_avg + home_conceded_avg) / 2)
+
+    def _poisson_pmf(k: int, lam: float) -> float:
+        return math.exp(-lam) * (lam ** k) / math.factorial(k)
+
+    MAX_GOALS = 6
+    score_grid = []
+    for hg in range(MAX_GOALS + 1):
+        for ag in range(MAX_GOALS + 1):
+            p = _poisson_pmf(hg, lambda_home) * _poisson_pmf(ag, lambda_away)
+            score_grid.append((hg, ag, p))
+    total_p = sum(p for _, _, p in score_grid) or 1.0
+    score_grid = [(hg, ag, p / total_p) for hg, ag, p in score_grid]
+    score_grid.sort(key=lambda x: x[2], reverse=True)
+    top_scores = [
+        {"ty_so": f"{hg}-{ag}", "xac_suat": round(p * 100, 1)}
+        for hg, ag, p in score_grid[:5]
+    ]
+    ty_so_chinh_xac = {
+        "du_doan_nhat": top_scores[0]["ty_so"] if top_scores else None,
+        "top5": top_scores,
+        "ban_thang_ky_vong": {"nha": round(lambda_home, 2), "khach": round(lambda_away, 2)},
+    }
+
+    # ============ BIỂU ĐỒ PHONG ĐỘ (5 trận gần nhất, W/D/L) ============
+    recent_matches = team_state.get("recent_matches", {})
+
+    def _form_chart(matches):
+        return [
+            {
+                "ket_qua": m["ket_qua"],
+                "doi_thu": m["doi_thu"],
+                "ty_so": f'{m["ban_thang"]}-{m["ban_thua"]}',
+                "san": m["san"],
+            }
+            for m in matches[-5:]
+        ]
+
+    bieu_do_phong_do = {
+        "nha": _form_chart(recent_matches.get(doi_nha, [])),
+        "khach": _form_chart(recent_matches.get(doi_khach, [])),
+    }
+
+    # ============ SO SÁNH HAI ĐỘI (miễn phí, để thu hút người dùng) ========
+    so_sanh = {
+        "elo": {"home": round(home_elo), "away": round(away_elo)},
+        "phong_do_pct": {
+            "home": round(min(100, (home_form / 3) * 100)),
+            "away": round(min(100, (away_form / 3) * 100)),
+        },
+        "ban_thang_tb": {"home": round(home_scored_avg, 2), "away": round(away_scored_avg, 2)},
+        "ban_thua_tb": {"home": round(home_conceded_avg, 2), "away": round(away_conceded_avg, 2)},
+        "win_rate_pct": {
+            "home": round(home_win_rate * 100),
+            "away": round(away_win_rate * 100),
+        },
+    }
+
+    # ============ ĐỘ TIN CẬY CỦA AI (KHÔNG PHẢI XÁC SUẤT THẮNG) ==========
+    probs_pct = sorted([_p(2), _p(1), _p(0)], reverse=True)
+    gap = probs_pct[0] - probs_pct[1]  # khoảng cách giữa lựa chọn khả dĩ nhất và lựa chọn còn lại
+    data_volume = min(home_gp, away_gp)
+
+    gap_component = min(100, gap * 2.2)
+    elo_component = min(100, abs(elo_diff_abs) / 2)
+    data_component = min(100, (data_volume / 25) * 100)
+    confidence_score = round(0.45 * gap_component + 0.30 * elo_component + 0.25 * data_component)
+    confidence_score = int(max(5, min(96, confidence_score)))
+
+    if confidence_score >= 70:
+        confidence_level = "CAO"
+    elif confidence_score >= 45:
+        confidence_level = "TRUNG BÌNH"
+    else:
+        confidence_level = "THẤP"
+
+    confidence_reasons = []
+    if abs(elo_diff_abs) >= 50:
+        confidence_reasons.append("Chênh lệch Elo giữa hai đội khá lớn.")
+    if gap >= 25:
+        confidence_reasons.append("Kết quả khả dĩ nhất bỏ xa các phương án còn lại.")
+    if data_volume >= 20:
+        confidence_reasons.append("Đủ dữ liệu lịch sử để mô hình học ổn định.")
+    elif data_volume < 8:
+        confidence_reasons.append("Dữ liệu của ít nhất 1 đội còn khá mỏng, độ tin cậy có thể giảm.")
+    if past_meetings:
+        confidence_reasons.append("Có lịch sử đối đầu trực tiếp giữa hai đội để tham khảo.")
+    if not confidence_reasons:
+        confidence_reasons.append("Các chỉ số của hai đội khá cân bằng, nên độ chắc chắn ở mức vừa phải.")
+
+    do_tin_cay = {
+        "diem": confidence_score,
+        "muc": confidence_level,
+        "ly_do": confidence_reasons,
+        "ghi_chu": "Đây là độ tự tin của mô hình dựa trên chất lượng & sự khác biệt dữ liệu, không phải xác suất thắng chắc chắn.",
+    }
+
     # ============ THỐNG KÊ CHI TIẾT (chỉ hiện với tài khoản Premium) ========
     premium_stats = {
         "elo": {"home": round(home_elo), "away": round(away_elo)},
@@ -1250,6 +1375,10 @@ def predict_match(model, team_state: Dict, doi_nha: str, doi_khach: str) -> Dict
         "thang_khach": _p(0),
         "explain": explain,
         "premium_stats": premium_stats,
+        "ty_so_chinh_xac": ty_so_chinh_xac,
+        "bieu_do_phong_do": bieu_do_phong_do,
+        "so_sanh": so_sanh,
+        "do_tin_cay": do_tin_cay,
     }
 
 

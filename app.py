@@ -26,7 +26,7 @@ from flask import Flask, render_template, request, jsonify, session
 from flask_login import current_user, login_required
 
 from extensions import db, login_manager
-from db_models import User
+from db_models import User, Prediction
 from auth import auth_bp
 from payments import payments_bp
 from admin import admin_bp
@@ -307,6 +307,37 @@ def get_model(league_key: str = DEFAULT_LEAGUE_KEY):
     return state["model"], state["team_state"], state["teams"], state["metrics"]
 
 
+def _backfill_predictions(league_key: str, team_state: dict) -> None:
+    """Đối chiếu các dự đoán đang chờ kết quả (ket_qua_thuc_te is None) của
+    giải `league_key` với dữ liệu đối đầu (h2h_hist) mới nhất trong
+    team_state. h2h_hist lưu (đội_nhà_lúc_đó, hiệu_số_bàn, ngày) cho mọi
+    cặp đội đã từng gặp nhau -- nếu tìm thấy 1 trận diễn ra SAU thời điểm
+    dự đoán được tạo, coi đó là kết quả thật của trận đã dự đoán.
+
+    Đây là cách xấp xỉ hợp lý mà KHÔNG cần thêm 1 nguồn dữ liệu lịch thi
+    đấu/kết quả trực tiếp riêng: kết quả chỉ "về" sau khi model được
+    retrain với dữ liệu mới có chứa trận đấu đó.
+    """
+    pending = Prediction.query.filter_by(league=league_key, ket_qua_thuc_te=None).all()
+    if not pending:
+        return
+    h2h_hist = team_state.get("h2h_hist", {})
+    changed = False
+    for pred in pending:
+        pair_key = frozenset((pred.doi_nha, pred.doi_khach))
+        for past_home, diff, match_date in h2h_hist.get(pair_key, []):
+            if match_date is None or match_date.replace(tzinfo=None) < pred.created_at:
+                continue
+            oriented = diff if past_home == pred.doi_nha else -diff
+            ket_qua = "hoa" if oriented == 0 else ("nha" if oriented > 0 else "khach")
+            pred.ket_qua_thuc_te = ket_qua
+            pred.dung = (ket_qua == pred.du_doan)
+            changed = True
+            break
+    if changed:
+        db.session.commit()
+
+
 @app.route("/api/leagues")
 def api_leagues():
     """Trả về danh sách giải đấu để frontend hiển thị dropdown chọn giải."""
@@ -548,6 +579,22 @@ def api_predict():
 
     if is_logged_in:
         current_user.register_prediction()
+
+        # Lưu lại lịch sử dự đoán để hiển thị ở trang "Lịch sử dự đoán" +
+        # tính độ chính xác thật của AI theo thời gian cho từng tài khoản.
+        probs_by_label = {"nha": result["thang_nha"], "hoa": result["hoa"], "khach": result["thang_khach"]}
+        du_doan = max(probs_by_label, key=probs_by_label.get)
+        db.session.add(Prediction(
+            user_id=current_user.id,
+            league=league_key,
+            doi_nha=doi_nha,
+            doi_khach=doi_khach,
+            thang_nha=result["thang_nha"],
+            hoa=result["hoa"],
+            thang_khach=result["thang_khach"],
+            ty_so_du_doan=(result.get("ty_so_chinh_xac") or {}).get("du_doan_nhat"),
+            du_doan=du_doan,
+        ))
         db.session.commit()
         usage = current_user.usage_dict(FREE_DAILY_LIMIT)
     else:
@@ -592,10 +639,52 @@ def api_retrain():
         return jsonify({"error": str(e)}), 500
 
     _state[league_key] = {"model": model, "team_state": team_state, "teams": teams, "metrics": metrics}
+    _backfill_predictions(league_key, team_state)
     return jsonify({
         "message": f"Đã huấn luyện lại mô hình cho {LEAGUES[league_key]['name']}.",
         "so_doi": len(teams),
         "metrics": metrics,
+    })
+
+
+@app.route("/api/history")
+@login_required
+def api_history():
+    """Lịch sử dự đoán của tài khoản đang đăng nhập + độ chính xác thực tế
+    của AI (chỉ tính trên các dự đoán ĐÃ xác định được kết quả thật)."""
+    # Đối chiếu kết quả thật cho các dự đoán đang chờ, với TỪNG giải đấu
+    # user này có dự đoán (không chỉ giải đang chọn trên FE).
+    leagues_pending = {
+        row.league for row in
+        Prediction.query.filter_by(user_id=current_user.id, ket_qua_thuc_te=None)
+        .with_entities(Prediction.league).distinct()
+    }
+    for league_key in leagues_pending:
+        try:
+            _, team_state, _, _ = get_model(league_key)
+        except RuntimeError:
+            continue
+        _backfill_predictions(league_key, team_state)
+
+    rows = (
+        Prediction.query.filter_by(user_id=current_user.id)
+        .order_by(Prediction.created_at.desc())
+        .limit(100)
+        .all()
+    )
+    decided = [r for r in rows if r.ket_qua_thuc_te is not None]
+    so_dung = sum(1 for r in decided if r.dung)
+    ty_le_chinh_xac = round(so_dung / len(decided) * 100, 1) if decided else None
+
+    return jsonify({
+        "rows": [r.to_dict() for r in rows],
+        "thong_ke": {
+            "tong_so": len(rows),
+            "da_co_ket_qua": len(decided),
+            "dung": so_dung,
+            "sai": len(decided) - so_dung,
+            "ty_le_chinh_xac": ty_le_chinh_xac,
+        },
     })
 
 
