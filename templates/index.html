@@ -412,6 +412,22 @@
     <p class="footer-links"><a href="/about">Giới thiệu</a> · <a href="/privacy">Chính sách bảo mật</a> · <a href="/terms">Điều khoản sử dụng</a></p>
   </footer>
 
+  <div class="music-player">
+    <audio id="bg-music" loop preload="none">
+      <source src="{{ url_for('static', filename='audio/lofi.mp3') }}" type="audio/mpeg">
+    </audio>
+    <button id="btn-music-toggle" class="music-toggle-btn" type="button" aria-label="Bật/tắt nhạc nền" title="Bật/tắt nhạc nền">
+      <span id="music-icon">🔇</span>
+    </button>
+  </div>
+<div class="music-player">
+  <audio id="bg-music" loop preload="none">
+    <source src="{{ url_for('static', filename='audio/lofi.mp3') }}" type="audio/mpeg">
+  </audio>
+  <button id="btn-music-toggle" class="music-toggle-btn" type="button" aria-label="Bật/tắt nhạc nền" title="Bật/tắt nhạc nền">
+    <span id="music-icon">🔇</span>
+  </button>
+</div>
   <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>
