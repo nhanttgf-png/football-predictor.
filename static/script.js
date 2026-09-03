@@ -8,6 +8,23 @@ const leaderboardView = document.getElementById("leaderboard-view");
 const leaderboardError = document.getElementById("leaderboard-error");
 const leaderboardNote = document.getElementById("leaderboard-note");
 
+// ---- Tab Cầu thủ ----
+const tabPlayers = document.getElementById("tab-players");
+const playersView = document.getElementById("players-view");
+const playersError = document.getElementById("players-error");
+const playersNote = document.getElementById("players-note");
+const playersTeamFilter = document.getElementById("players-team-filter");
+const playersPositionFilter = document.getElementById("players-position-filter");
+const playersSort = document.getElementById("players-sort");
+const playersTbody = document.getElementById("players-tbody");
+
+// ---- Cầu thủ nổi bật (trong kết quả dự đoán) ----
+const keyPlayersBlock = document.getElementById("key-players-block");
+const keyPlayersTeamHome = document.getElementById("key-players-team-home");
+const keyPlayersTeamAway = document.getElementById("key-players-team-away");
+const keyPlayersListHome = document.getElementById("key-players-list-home");
+const keyPlayersListAway = document.getElementById("key-players-list-away");
+
 // ---- Sub-tab Mùa giải hiện tại / Tổng hợp nhiều mùa ----
 const subtabSeason = document.getElementById("subtab-season");
 const subtabAlltime = document.getElementById("subtab-alltime");
@@ -351,6 +368,7 @@ async function loadLeagues() {
       loadTeams(selGiaiDau.value);
       loadModelInfo(selGiaiDau.value);
       if (!leaderboardView.hidden) loadCurrentLeaderboardView();
+      if (!playersView.hidden) loadPlayers();
     });
 
     // Tải đội + thông tin model cho giải mặc định
@@ -370,23 +388,35 @@ async function loadLeagues() {
 let leaderboardSortLoaded = false;
 let leaderboardSubview = "season"; // "season" | "alltime"
 
+function setActiveTab(activeTab) {
+  for (const tab of [tabPredict, tabLeaderboard, tabPlayers]) {
+    const isActive = tab === activeTab;
+    tab.classList.toggle("view-tab-active", isActive);
+    tab.setAttribute("aria-selected", isActive ? "true" : "false");
+  }
+}
+
 function switchToPredictView() {
-  tabPredict.classList.add("view-tab-active");
-  tabPredict.setAttribute("aria-selected", "true");
-  tabLeaderboard.classList.remove("view-tab-active");
-  tabLeaderboard.setAttribute("aria-selected", "false");
+  setActiveTab(tabPredict);
   predictView.hidden = false;
   leaderboardView.hidden = true;
+  playersView.hidden = true;
 }
 
 function switchToLeaderboardView() {
-  tabLeaderboard.classList.add("view-tab-active");
-  tabLeaderboard.setAttribute("aria-selected", "true");
-  tabPredict.classList.remove("view-tab-active");
-  tabPredict.setAttribute("aria-selected", "false");
+  setActiveTab(tabLeaderboard);
   leaderboardView.hidden = false;
   predictView.hidden = true;
+  playersView.hidden = true;
   loadCurrentLeaderboardView();
+}
+
+function switchToPlayersView() {
+  setActiveTab(tabPlayers);
+  playersView.hidden = false;
+  predictView.hidden = true;
+  leaderboardView.hidden = true;
+  loadPlayers();
 }
 
 function switchToSeasonSubview() {
@@ -546,9 +576,143 @@ function renderLeaderboard(rows) {
 
 tabPredict.addEventListener("click", switchToPredictView);
 tabLeaderboard.addEventListener("click", switchToLeaderboardView);
+tabPlayers.addEventListener("click", switchToPlayersView);
 subtabSeason.addEventListener("click", switchToSeasonSubview);
 subtabAlltime.addEventListener("click", switchToAlltimeSubview);
 leaderboardSort.addEventListener("change", loadLeaderboard);
+
+// ==================== CẦU THỦ (bảng rating) ====================
+
+const POSITION_LABELS = { FW: "Tiền đạo", MF: "Tiền vệ", DF: "Hậu vệ", GK: "Thủ môn" };
+let playersSortLoaded = false;
+let currentTeams = [];
+
+function showPlayersError(message) {
+  playersError.textContent = message;
+  playersError.hidden = false;
+}
+
+function clearPlayersError() {
+  playersError.hidden = true;
+  playersError.textContent = "";
+}
+
+function fillTeamFilter(select, teams) {
+  const current = select.value;
+  select.innerHTML = "";
+  const allOpt = document.createElement("option");
+  allOpt.value = "";
+  allOpt.textContent = "Tất cả";
+  select.appendChild(allOpt);
+  for (const team of teams) {
+    const opt = document.createElement("option");
+    opt.value = team;
+    opt.textContent = team;
+    select.appendChild(opt);
+  }
+  select.value = teams.includes(current) ? current : "";
+}
+
+async function loadPlayers() {
+  clearPlayersError();
+  playersTbody.innerHTML = `<tr><td colspan="8">Đang tải...</td></tr>`;
+
+  try {
+    const league = selGiaiDau.value;
+    const sort = playersSort.value || "rating";
+    const params = new URLSearchParams({ league, sort });
+    if (playersTeamFilter.value) params.set("team", playersTeamFilter.value);
+    if (playersPositionFilter.value) params.set("position", playersPositionFilter.value);
+
+    const res = await fetch(`/api/players?${params.toString()}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      playersTbody.innerHTML = "";
+      showPlayersError(data.error || "Có lỗi xảy ra, vui lòng thử lại.");
+      return;
+    }
+
+    if (!playersSortLoaded && data.sort_options && data.sort_options.length) {
+      playersSort.innerHTML = "";
+      for (const opt of data.sort_options) {
+        const o = document.createElement("option");
+        o.value = opt.key;
+        o.textContent = opt.label;
+        playersSort.appendChild(o);
+      }
+      playersSort.value = data.sort;
+      playersSortLoaded = true;
+    }
+
+    playersNote.textContent = data.season
+      ? `Rating tính từ số liệu mùa giải ${data.season} trên FBref, chỉ tính cầu thủ đã đá đủ số phút tối thiểu.`
+      : "Rating cầu thủ được tính từ số liệu mùa giải gần nhất trên FBref.";
+
+    renderPlayers(data.rows);
+  } catch (err) {
+    playersTbody.innerHTML = "";
+    showPlayersError("Không kết nối được tới server. Kiểm tra lại backend đang chạy chưa.");
+  }
+}
+
+function renderPlayers(rows) {
+  playersTbody.innerHTML = "";
+
+  if (!rows || !rows.length) {
+    playersTbody.innerHTML = `<tr><td colspan="8">Chưa có dữ liệu.</td></tr>`;
+    return;
+  }
+
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td class="lb-rank">${r.hang}</td>` +
+      `<td class="lb-col-team">${r.cau_thu}</td>` +
+      `<td class="lb-col-team">${r.doi}</td>` +
+      `<td>${POSITION_LABELS[r.vi_tri] ? POSITION_LABELS[r.vi_tri][0] : (r.vi_tri || "?")}</td>` +
+      `<td>${r.so_phut ?? ""}</td>` +
+      `<td>${r.ban_thang ?? 0}</td>` +
+      `<td>${r.kien_tao ?? 0}</td>` +
+      `<td class="player-rating">${r.rating != null ? r.rating.toFixed(1) : "-"}</td>`;
+    playersTbody.appendChild(tr);
+  }
+}
+
+playersTeamFilter.addEventListener("change", loadPlayers);
+playersPositionFilter.addEventListener("change", loadPlayers);
+playersSort.addEventListener("change", loadPlayers);
+
+// ==================== CẦU THỦ NỔI BẬT (kết quả dự đoán) ====================
+
+function renderKeyPlayers(highlight, doiNha, doiKhach) {
+  const hasAny = highlight && ((highlight.nha && highlight.nha.length) || (highlight.khach && highlight.khach.length));
+  if (!hasAny) {
+    keyPlayersBlock.hidden = true;
+    return;
+  }
+  keyPlayersBlock.hidden = false;
+  keyPlayersTeamHome.textContent = doiNha;
+  keyPlayersTeamAway.textContent = doiKhach;
+  renderKeyPlayersList(keyPlayersListHome, highlight.nha);
+  renderKeyPlayersList(keyPlayersListAway, highlight.khach);
+}
+
+function renderKeyPlayersList(listEl, players) {
+  listEl.innerHTML = "";
+  if (!players || !players.length) {
+    listEl.innerHTML = `<li class="key-players-empty">Chưa có dữ liệu cầu thủ.</li>`;
+    return;
+  }
+  for (const p of players) {
+    const li = document.createElement("li");
+    li.innerHTML =
+      `<span class="key-players-name">${p.cau_thu}</span>` +
+      `<span class="key-players-pos">${POSITION_LABELS[p.vi_tri] || p.vi_tri || ""}</span>` +
+      `<span class="key-players-rating">${p.rating != null ? p.rating.toFixed(1) : "-"}</span>`;
+    listEl.appendChild(li);
+  }
+}
 
 async function loadTeams(league) {
   try {
@@ -559,8 +723,10 @@ async function loadTeams(league) {
     const res = await fetch(url);
     if (!res.ok) throw new Error("Không tải được danh sách đội");
     const data = await res.json();
-    fillSelect(selDoiNha, data.teams);
-    fillSelect(selDoiKhach, data.teams);
+    currentTeams = data.teams || [];
+    fillSelect(selDoiNha, currentTeams);
+    fillSelect(selDoiKhach, currentTeams);
+    fillTeamFilter(playersTeamFilter, currentTeams);
     btnPredict.disabled = false;
   } catch (err) {
     showError("Không tải được danh sách đội. Kiểm tra lại server backend.");
@@ -619,6 +785,7 @@ async function predict() {
     updateBar("bar-away", "pct-away", data.thang_khach);
 
     renderExplain(data.explain);
+    renderKeyPlayers(data.cau_thu_noi_bat, data.doi_nha, data.doi_khach);
     renderPremiumStats(data.premium_stats, data.doi_nha, data.doi_khach);
     renderUsage(data.usage);
 

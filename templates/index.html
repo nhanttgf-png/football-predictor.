@@ -58,6 +58,7 @@
     <div class="view-tabs" role="tablist">
       <button type="button" id="tab-predict" class="view-tab view-tab-active" role="tab" aria-selected="true">Dự đoán trận đấu</button>
       <button type="button" id="tab-leaderboard" class="view-tab" role="tab" aria-selected="false">Bảng xếp hạng</button>
+      <button type="button" id="tab-players" class="view-tab" role="tab" aria-selected="false">Cầu thủ</button>
     </div>
 
     <section id="leaderboard-view" class="leaderboard-view" hidden aria-label="Bảng xếp hạng">
@@ -117,6 +118,46 @@
       </div>
     </section>
 
+    <section id="players-view" class="leaderboard-view" hidden aria-label="Cầu thủ">
+      <div class="leaderboard-toolbar">
+        <label for="players-team-filter">Đội</label>
+        <select id="players-team-filter"><option value="">Tất cả</option></select>
+
+        <label for="players-position-filter">Vị trí</label>
+        <select id="players-position-filter">
+          <option value="">Tất cả</option>
+          <option value="FW">Tiền đạo</option>
+          <option value="MF">Tiền vệ</option>
+          <option value="DF">Hậu vệ</option>
+          <option value="GK">Thủ môn</option>
+        </select>
+
+        <label for="players-sort">Sắp xếp theo</label>
+        <select id="players-sort"></select>
+      </div>
+
+      <p id="players-error" class="error-msg" hidden></p>
+      <p id="players-note" class="leaderboard-note"></p>
+
+      <div class="leaderboard-table-wrap">
+        <table class="leaderboard-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th class="lb-col-team">Cầu thủ</th>
+              <th class="lb-col-team">Đội</th>
+              <th>VT</th>
+              <th>Phút</th>
+              <th>Bàn</th>
+              <th>Kiến tạo</th>
+              <th>Rating</th>
+            </tr>
+          </thead>
+          <tbody id="players-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
     <div id="predict-view">
     <section class="picker-card" aria-label="Chọn trận đấu">
       <div class="team-slot">
@@ -167,6 +208,20 @@
       <div class="explain-block">
         <p class="explain-title">Vì sao dự đoán như vậy?</p>
         <ul id="explain-list" class="explain-list"></ul>
+      </div>
+
+      <div id="key-players-block" class="key-players-block" hidden>
+        <p class="key-players-title">⭐ Cầu thủ nổi bật</p>
+        <div class="key-players-cols">
+          <div class="key-players-col">
+            <p class="key-players-team" id="key-players-team-home"></p>
+            <ul id="key-players-list-home" class="key-players-list"></ul>
+          </div>
+          <div class="key-players-col">
+            <p class="key-players-team" id="key-players-team-away"></p>
+            <ul id="key-players-list-away" class="key-players-list"></ul>
+          </div>
+        </div>
       </div>
 
       {% if adsense_client and adsense_slot_mid %}

@@ -39,6 +39,14 @@ from model import (
     sort_leaderboard,
     LEADERBOARD_SORT_FIELDS,
 )
+from player_ratings import (
+    load_or_build_player_ratings,
+    build_player_leaderboard,
+    sort_player_leaderboard,
+    get_key_players,
+    PLAYER_SORT_FIELDS,
+    POSITIONS as PLAYER_POSITIONS,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -182,6 +190,54 @@ def _empty_state():
 def _valid_league_key(league_key: str) -> str:
     """Trả về league_key hợp lệ, hoặc mặc định nếu người dùng gửi giá trị lạ."""
     return league_key if league_key in LEAGUES else DEFAULT_LEAGUE_KEY
+
+
+# ==================== RATING CẦU THỦ ====================
+# Cùng lý do với model dự đoán trận đấu: KHÔNG tự tải dữ liệu FBref lúc
+# import module, chỉ tải/khôi phục cache ở lần gọi đầu tiên.
+_player_state = {}
+
+
+def _empty_player_state():
+    return {"players": None, "meta": None}
+
+
+def _default_player_season(league_key: str) -> str:
+    """Rating cầu thủ dùng số liệu 1 MÙA GIẢI cụ thể (khác model dự đoán
+    trận đấu, gộp nhiều mùa). Mặc định lấy mùa GẦN NHẤT ĐÃ ĐÁ ĐỦ (mùa
+    liền trước mùa hiện tại), vì đầu mùa mới cầu thủ chưa đá đủ số phút
+    tối thiểu (MIN_MINUTES) để rating có ý nghĩa."""
+    seasons = LEAGUES[league_key]["seasons"]
+    return seasons[-2] if len(seasons) >= 2 else seasons[-1]
+
+
+def get_player_ratings(league_key: str = DEFAULT_LEAGUE_KEY, season: str = None):
+    league_key = _valid_league_key(league_key)
+    season = season or _default_player_season(league_key)
+    cache_key = f"{league_key}:{season}"
+    state = _player_state.setdefault(cache_key, _empty_player_state())
+
+    if state["players"] is None:
+        logger.info("Đang tải rating cầu thủ cho giải %s, mùa %s...", league_key, season)
+        try:
+            players, meta = load_or_build_player_ratings(
+                league_key=league_key,
+                league_code=LEAGUES[league_key]["code"],
+                season=season,
+            )
+        except Exception as e:
+            logger.error("Lỗi khởi tạo rating cầu thủ (%s): %s", league_key, e, exc_info=True)
+            raise RuntimeError(
+                f"Chưa có cache rating cầu thủ cho giải \"{LEAGUES[league_key]['name']}\" "
+                f"(mùa {season}) và server này không tự tải dữ liệu được (thiếu Chrome). "
+                f"Hãy chạy `python train_players_offline.py --league "
+                f"\"{LEAGUES[league_key]['code']}\" --season {season}` ở máy local rồi "
+                "commit + push file player_ratings_<giải>.pkl tương ứng lên GitHub."
+            ) from e
+        state.update(players=players, meta=meta)
+        logger.info("Rating cầu thủ %s đã sẵn sàng! Số cầu thủ: %d", league_key, len(players))
+    return state["players"], state["meta"]
+
 
 # ==================== GOOGLE ADSENSE ====================
 # Chỉ hiện quảng cáo khi ADSENSE_CLIENT được cấu hình (mã dạng ca-pub-...,
@@ -335,6 +391,69 @@ def api_leaderboard():
     })
 
 
+@app.route("/api/players")
+def api_players():
+    """Bảng xếp hạng rating cầu thủ của 1 giải đấu, lọc theo đội/vị trí,
+    sắp xếp theo thông số do FE chọn.
+    Query params:
+      ?league=<key>      giải đấu, mặc định Ngoại hạng Anh.
+      ?team=<tên đội>    lọc theo 1 đội (không bắt buộc).
+      ?position=<FW|MF|DF|GK>  lọc theo vị trí (không bắt buộc).
+      ?sort=<key>        thông số sắp xếp, xem PLAYER_SORT_FIELDS
+                         (mặc định "rating")."""
+    league_key = _valid_league_key(request.args.get("league", DEFAULT_LEAGUE_KEY))
+    team = (request.args.get("team") or "").strip() or None
+    position = (request.args.get("position") or "").strip().upper() or None
+    if position not in PLAYER_POSITIONS:
+        position = None
+    sort_by = request.args.get("sort", "rating")
+    if sort_by not in PLAYER_SORT_FIELDS:
+        sort_by = "rating"
+
+    try:
+        players, meta = get_player_ratings(league_key)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 500
+
+    rows = build_player_leaderboard(players, team=team, position=position)
+    rows = sort_player_leaderboard(rows, sort_by)
+
+    return jsonify({
+        "league": league_key,
+        "season": meta.get("season_label") if meta else None,
+        "sort": sort_by,
+        "sort_options": [{"key": k, "label": v} for k, v in PLAYER_SORT_FIELDS.items()],
+        "positions": list(PLAYER_POSITIONS),
+        "rows": rows,
+    })
+
+
+@app.route("/api/retrain-players", methods=["POST"])
+def api_retrain_players():
+    """Tính lại rating cầu thủ từ đầu (tải dữ liệu mới nhất từ FBref).
+    Body JSON { "league": "la-liga", "season": "2425" } không bắt buộc."""
+    data = request.get_json(silent=True) or {}
+    league_key = _valid_league_key(data.get("league", DEFAULT_LEAGUE_KEY))
+    season = data.get("season") or _default_player_season(league_key)
+    try:
+        players, meta = load_or_build_player_ratings(
+            league_key=league_key,
+            league_code=LEAGUES[league_key]["code"],
+            season=season,
+            force_rebuild=True,
+        )
+    except Exception as e:
+        logger.error("Lỗi khi retrain rating cầu thủ (%s): %s", league_key, e, exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+    _player_state[f"{league_key}:{season}"] = {"players": players, "meta": meta}
+    return jsonify({
+        "message": f"Đã tính lại rating cầu thủ cho {LEAGUES[league_key]['name']} (mùa {season}).",
+        "so_cau_thu": len(players),
+        "season": season,
+    })
+
+
 @app.route("/api/usage")
 def api_usage():
     """Số lượt dự đoán miễn phí còn lại trong ngày + trạng thái Premium.
@@ -414,6 +533,18 @@ def api_predict():
     except Exception as e:
         logger.error("Lỗi khi dự đoán: %s", e, exc_info=True)
         return jsonify({"error": "Có lỗi xảy ra, vui lòng thử lại."}), 500
+
+    # Cầu thủ nổi bật mỗi đội — tính năng miễn phí cho mọi người xem, không
+    # chặn Premium. Nếu chưa có cache rating cầu thủ cho giải này thì bỏ
+    # qua (trả None), không làm hỏng luồng dự đoán chính vốn đang chạy ổn.
+    try:
+        players, _ = get_player_ratings(league_key)
+        result["cau_thu_noi_bat"] = {
+            "nha": get_key_players(players, doi_nha, limit=3),
+            "khach": get_key_players(players, doi_khach, limit=3),
+        }
+    except RuntimeError:
+        result["cau_thu_noi_bat"] = None
 
     if is_logged_in:
         current_user.register_prediction()

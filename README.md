@@ -7,15 +7,21 @@ mô hình Random Forest học từ dữ liệu FBref (mùa 2023/24).
 
 ```
 football-predictor/
-├── app.py              # Flask backend + API
-├── model.py            # Logic AI: tải dữ liệu, huấn luyện, dự đoán
-├── requirements.txt    # Thư viện Python cần cài
+├── app.py                    # Flask backend + API
+├── model.py                  # Logic AI: tải dữ liệu, huấn luyện, dự đoán kết quả trận đấu
+├── player_ratings.py         # Tính rating cầu thủ (0-10) từ số liệu FBref
+├── train_offline.py          # Script train model dự đoán trận đấu (chạy local, có Chrome)
+├── train_players_offline.py  # Script tính rating cầu thủ (chạy local, có Chrome)
+├── debug_team_stats.py       # Soi số liệu Elo/phong độ 1 đội từ cache
+├── debug_player_stats.py     # Soi rating cầu thủ + chỉ số nhận diện được từ cache
+├── requirements.txt          # Thư viện Python cần cài
 ├── templates/
-│   └── index.html      # Trang web chính
+│   └── index.html            # Trang web chính
 ├── static/
-│   ├── style.css        # Giao diện
-│   └── script.js        # Gọi API, cập nhật giao diện
-└── model_cache.pkl      # (tự sinh ra) cache mô hình đã huấn luyện
+│   ├── style.css             # Giao diện
+│   └── script.js             # Gọi API, cập nhật giao diện
+├── model_cache*.pkl          # (tự sinh ra) cache model dự đoán, 1 file/giải đấu
+└── player_ratings_*.pkl      # (tự sinh ra) cache rating cầu thủ, 1 file/giải đấu
 ```
 
 ## Chạy thử ở máy local
@@ -44,11 +50,37 @@ football-predictor/
 
 ## API có sẵn
 
-| Method | Endpoint        | Mô tả                                    |
-|--------|-----------------|-------------------------------------------|
-| GET    | `/api/teams`    | Trả về danh sách các đội                  |
-| POST   | `/api/predict`  | Body: `{"doi_nha": "...", "doi_khach": "..."}` |
-| POST   | `/api/retrain`  | Huấn luyện lại mô hình từ đầu             |
+| Method | Endpoint               | Mô tả                                    |
+|--------|------------------------|-------------------------------------------|
+| GET    | `/api/teams`           | Trả về danh sách các đội                  |
+| POST   | `/api/predict`         | Body: `{"doi_nha": "...", "doi_khach": "..."}` — kết quả có kèm `cau_thu_noi_bat` (3 cầu thủ rating cao nhất mỗi đội, nếu đã có cache rating) |
+| POST   | `/api/retrain`         | Huấn luyện lại mô hình dự đoán từ đầu     |
+| GET    | `/api/players`         | Bảng xếp hạng rating cầu thủ. Query: `?league=&team=&position=FW\|MF\|DF\|GK&sort=` |
+| POST   | `/api/retrain-players` | Tính lại rating cầu thủ từ đầu            |
+
+## Tính năng rating cầu thủ
+
+Rating (thang 0-10) được tính từ số liệu MÙA GIẢI trên FBref (bàn, kiến
+tạo, xG, chuyền bóng, phòng ngự, cản phá thủ môn...), xếp hạng phần trăm
+so với các cầu thủ khác cùng giải rồi lấy trung bình có trọng số THEO VỊ
+TRÍ (tiền đạo nặng tấn công, hậu vệ nặng phòng ngự, thủ môn dùng bộ chỉ
+số riêng). Cầu thủ đá dưới ~5 trận (450 phút) không được xếp rating vì
+mẫu quá nhỏ dễ gây nhiễu. Chi tiết công thức + cách tuỳ chỉnh nằm trong
+`player_ratings.py`.
+
+Cũng như model dự đoán trận đấu, **FBref cần trình duyệt (Chrome) để cào
+dữ liệu nên Render KHÔNG tự tính được** — phải chạy ở máy local:
+
+```bash
+python train_players_offline.py                       # Ngoại hạng Anh, mùa gần nhất đã đá đủ
+python train_players_offline.py --all                  # tất cả giải đang hỗ trợ
+python train_players_offline.py --league "ESP-La Liga" --season 2425
+```
+
+Sau đó commit + push các file `player_ratings_<giải>.pkl` mới lên GitHub.
+Dùng `python debug_player_stats.py --league la-liga --top 20` để soi kết
+quả và xem chỉ số nào chưa nhận diện được cột dữ liệu (nếu soccerdata đổi
+tên cột, chỉnh lại từ khoá tìm kiếm trong `METRICS` ở `player_ratings.py`).
 
 ## Làm việc nhóm trên GitHub (2-3 người)
 
