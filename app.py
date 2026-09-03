@@ -304,6 +304,11 @@ def ads_txt():
     return f"google.com, {pub_id}, DIRECT, f08c47fec0942fa0\n", 200, {"Content-Type": "text/plain"}
 
 
+@app.route("/about")
+def about_page():
+    return render_template("about.html")
+
+
 @app.route("/privacy")
 def privacy_page():
     return render_template("privacy.html")
