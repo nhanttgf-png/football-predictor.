@@ -7,3 +7,4 @@ soccerdata
 flask-sqlalchemy
 flask-login
 stripe
+psycopg2-binary
