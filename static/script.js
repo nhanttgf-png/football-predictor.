@@ -1194,8 +1194,11 @@ refreshUsageNote();
   const STORAGE_KEY = "bgMusicOn";
   music.volume = 0.35;
 
+  const iconOnSrc = icon.dataset.iconOn;
+  const iconOffSrc = icon.dataset.iconOff;
+
   function setPlayingUI(isPlaying) {
-    icon.textContent = isPlaying ? "🎵" : "🔇";
+    icon.src = isPlaying ? iconOnSrc : iconOffSrc;
     btn.classList.toggle("is-playing", isPlaying);
   }
 
@@ -1219,47 +1222,6 @@ refreshUsageNote();
   // Nếu lần trước người dùng đã bật nhạc, thử tự phát lại khi vào trang.
   // Trình duyệt có thể chặn autoplay có tiếng nếu người dùng chưa tương tác gì với trang -
   // khi đó nút vẫn hiển thị trạng thái tắt, người dùng chỉ cần bấm 1 lần là nhạc chạy lại bình thường.
-  if (localStorage.getItem(STORAGE_KEY) === "1") {
-    music.play().then(function () {
-      setPlayingUI(true);
-    }).catch(function () {
-      setPlayingUI(false);
-    });
-  } else {
-    setPlayingUI(false);
-  }
-})();
-
-/* ---- Nhạc nền lofi (nút bật/tắt) ---- */
-(function () {
-  const music = document.getElementById("bg-music");
-  const btn = document.getElementById("btn-music-toggle");
-  const icon = document.getElementById("music-icon");
-  if (!music || !btn || !icon) return;
-
-  const STORAGE_KEY = "bgMusicOn";
-  music.volume = 0.35;
-
-  function setPlayingUI(isPlaying) {
-    icon.textContent = isPlaying ? "🎵" : "🔇";
-    btn.classList.toggle("is-playing", isPlaying);
-  }
-
-  btn.addEventListener("click", function () {
-    if (music.paused) {
-      music.play()
-        .then(function () {
-          setPlayingUI(true);
-          localStorage.setItem(STORAGE_KEY, "1");
-        })
-        .catch(function () {});
-    } else {
-      music.pause();
-      setPlayingUI(false);
-      localStorage.setItem(STORAGE_KEY, "0");
-    }
-  });
-
   if (localStorage.getItem(STORAGE_KEY) === "1") {
     music.play().then(function () {
       setPlayingUI(true);

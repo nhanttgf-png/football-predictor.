@@ -417,17 +417,13 @@
       <source src="{{ url_for('static', filename='audio/lofi.mp3') }}" type="audio/mpeg">
     </audio>
     <button id="btn-music-toggle" class="music-toggle-btn" type="button" aria-label="Bật/tắt nhạc nền" title="Bật/tắt nhạc nền">
-      <span id="music-icon">🔇</span>
+      <img id="music-icon"
+           src="{{ url_for('static', filename='images/music-off.svg') }}"
+           data-icon-on="{{ url_for('static', filename='images/music-on.svg') }}"
+           data-icon-off="{{ url_for('static', filename='images/music-off.svg') }}"
+           alt="Trạng thái nhạc nền" width="24" height="24">
     </button>
   </div>
-<div class="music-player">
-  <audio id="bg-music" loop preload="none">
-    <source src="{{ url_for('static', filename='audio/lofi.mp3') }}" type="audio/mpeg">
-  </audio>
-  <button id="btn-music-toggle" class="music-toggle-btn" type="button" aria-label="Bật/tắt nhạc nền" title="Bật/tắt nhạc nền">
-    <span id="music-icon">🔇</span>
-  </button>
-</div>
   <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>

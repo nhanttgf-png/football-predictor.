@@ -1224,58 +1224,15 @@ body {
   50% { box-shadow: 0 0 0 10px rgba(242, 177, 52, 0); }
 }
 
-@media (max-width: 480px) {
-  .music-player {
-    right: 12px;
-    bottom: 12px;
-  }
-  .music-toggle-btn {
-    width: 46px;
-    height: 46px;
-    font-size: 1.2rem;
-  }
-}
-/* Music player toggle button */
-.music-player {
-  position: fixed;
-  right: 18px;
-  bottom: 18px;
-  z-index: 999;
+#music-icon {
+  width: 24px;
+  height: 24px;
+  display: block;
+  transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
-.music-toggle-btn {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  border: 2px solid var(--amber);
-  background: var(--pitch-dark);
-  color: var(--chalk);
-  font-size: 1.4rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.music-toggle-btn:hover {
-  transform: scale(1.08);
-}
-
-.music-toggle-btn:active {
-  transform: scale(0.94);
-}
-
-.music-toggle-btn.is-playing {
-  background: var(--amber);
-  color: var(--ink);
-  animation: music-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes music-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(242, 177, 52, 0.45); }
-  50% { box-shadow: 0 0 0 10px rgba(242, 177, 52, 0); }
+.music-toggle-btn.is-playing #music-icon {
+  transform: scale(1.1);
 }
 
 @media (max-width: 480px) {
