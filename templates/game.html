@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Penalty Shootout · Football Predictor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<style>
+.game-page{max-width:900px;margin:0 auto;padding:28px 18px 60px}.game-top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px}.back{color:inherit;text-decoration:none;font-weight:700}.game-title{font-family:'Baloo 2',sans-serif;font-size:clamp(34px,7vw,64px);margin:10px 0 0}.game-sub{opacity:.72;margin:0 0 18px}.score-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:18px 0}.score-card{padding:14px;border-radius:16px;background:rgba(255,255,255,.06);text-align:center}.score-card strong{display:block;font-size:28px}.arena{position:relative;overflow:hidden;border-radius:24px;background:linear-gradient(#182b40,#0c1724);min-height:430px;border:1px solid rgba(255,255,255,.1)}.goal{position:absolute;top:42px;left:50%;transform:translateX(-50%);width:min(70%,430px);height:180px;border:8px solid #eee;border-bottom:14px solid #eee;border-radius:8px 8px 0 0;box-shadow:inset 0 0 0 2px #777;background:repeating-linear-gradient(90deg,rgba(255,255,255,.08) 0 2px,transparent 2px 28px),repeating-linear-gradient(0deg,rgba(255,255,255,.08) 0 2px,transparent 2px 24px)}.keeper{position:absolute;top:105px;left:50%;font-size:58px;transform:translateX(-50%);transition:left .35s ease}.ball{position:absolute;bottom:68px;left:50%;font-size:42px;transform:translateX(-50%);transition:all .55s cubic-bezier(.2,.8,.2,1);z-index:4}.player{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);font-size:70px}.aim{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);display:grid;grid-template-columns:repeat(3,70px);gap:8px;z-index:5}.aim button{border:0;border-radius:14px;padding:12px;background:rgba(255,255,255,.13);color:#fff;font-size:20px;cursor:pointer}.aim button:hover{background:rgba(255,255,255,.24)}.status{text-align:center;font-size:20px;font-weight:700;min-height:30px;margin:16px}.game-actions{display:flex;justify-content:center;gap:10px}.game-btn{border:0;border-radius:14px;padding:12px 20px;font-weight:800;cursor:pointer}.game-btn.primary{background:#fff;color:#111}.game-btn.secondary{background:rgba(255,255,255,.1);color:inherit}.hidden{display:none!important}.history{margin-top:18px;text-align:center;opacity:.8}.bar{height:8px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden}.bar i{display:block;height:100%;width:0;background:#fff;transition:width .3s}
+@media(max-width:600px){.arena{min-height:380px}.aim{grid-template-columns:repeat(3,58px)}.goal{height:150px}.keeper{top:95px}.score-row{gap:6px}}
+</style>
+</head>
+<body>
+<main class="game-page">
+  <div class="game-top"><a class="back" href="/">← Về Football Predictor</a><span>🎮 Mini Game</span></div>
+  <h1 class="game-title">Penalty Shootout ⚽</h1>
+  <p class="game-sub">5 lượt sút. Đánh bại thủ môn và phá kỷ lục của chính bạn.</p>
+  <div class="score-row">
+    <div class="score-card">Lượt<strong id="round">1/5</strong></div>
+    <div class="score-card">Bàn<strong id="goals">0</strong></div>
+    <div class="score-card">Kỷ lục<strong id="best">0</strong></div>
+  </div>
+  <div class="arena" id="arena">
+    <div class="goal"></div><div class="keeper" id="keeper">🧤</div><div class="ball" id="ball">⚽</div><div class="player">🧍</div>
+    <div class="aim" id="aim">
+      <button data-dir="left">↖️</button><button data-dir="center">⬆️</button><button data-dir="right">↗️</button>
+    </div>
+  </div>
+  <div class="status" id="status">Chọn góc sút!</div>
+  <div class="game-actions"><button class="game-btn primary hidden" id="restart">Chơi lại</button><button class="game-btn secondary" id="sound">🔊 Âm thanh: Bật</button></div>
+  <div class="history">Tỉ lệ ghi bàn: <span id="rate">0%</span><div class="bar"><i id="ratebar"></i></div></div>
+</main>
+<script>
+(() => {
+ const $=id=>document.getElementById(id), aim=$('aim'), ball=$('ball'), keeper=$('keeper'), status=$('status'), restart=$('restart'), sound=$('sound');
+ let round=1, goals=0, active=true, muted=false; const bestKey='fp_penalty_best'; let best=Number(localStorage.getItem(bestKey)||0); $('best').textContent=best;
+ const dirs=['left','center','right'];
+ function beep(freq,duration){ if(muted) return; try{const c=new AudioContext(),o=c.createOscillator(),g=c.createGain();o.frequency.value=freq;o.connect(g);g.connect(c.destination);g.gain.value=.05;o.start();o.stop(c.currentTime+duration)}catch(e){} }
+ function resetBall(){ball.style.left='50%';ball.style.bottom='68px';ball.style.transform='translateX(-50%) scale(1)'}
+ function shoot(dir){ if(!active)return; active=false; aim.classList.add('hidden'); const kd=dirs[Math.floor(Math.random()*3)]; const map={left:'20%',center:'50%',right:'80%'}; keeper.style.left=map[kd]; ball.style.left=map[dir]; ball.style.bottom='250px'; ball.style.transform='translateX(-50%) scale(.55)';
+   const scored=dir!==kd; setTimeout(()=>{ if(scored){goals++;status.textContent='GOAL! 🔥 Thủ môn đoán sai!';beep(880,.12)} else {status.textContent='CẢN PHÁ! 🧤';beep(180,.18)}; $('goals').textContent=goals; $('rate').textContent=Math.round(goals/round*100)+'%'; $('ratebar').style.width=(goals/5*100)+'%';
+     if(round>=5){finish()} else {round++;$('round').textContent=round+'/5';setTimeout(()=>{resetBall();keeper.style.left='50%';aim.classList.remove('hidden');active=true;status.textContent='Chọn góc sút!'},650)} },550);
+ }
+ async function submitScore(){
+   try{
+     const r=await fetch('/api/game/penalty/score',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({goals})});
+     const d=await r.json();
+     if(r.ok){status.textContent += ` +${d.xp} XP 🎉 | Tổng XP: ${d.total_xp}`;}
+     else if(r.status===401){status.textContent += ' | Đăng nhập để nhận XP 🏆';}
+     else{status.textContent += ` | ${d.error||'Không thể lưu điểm'}`;}
+   }catch(e){status.textContent += ' | Không kết nối được máy chủ';}
+ }
+ function finish(){setTimeout(async()=>{if(goals>best){best=goals;localStorage.setItem(bestKey,best);$('best').textContent=best;status.textContent=`Hết trận! ${goals}/5 ⚡ KỶ LỤC MỚI!`}else status.textContent=`Hết trận! Bạn ghi ${goals}/5 bàn.`; await submitScore(); restart.classList.remove('hidden')},700)}
+ aim.addEventListener('click',e=>{const b=e.target.closest('button');if(b)shoot(b.dataset.dir)});
+ restart.onclick=()=>{round=1;goals=0;active=true;resetBall();keeper.style.left='50%';$('round').textContent='1/5';$('goals').textContent='0';$('rate').textContent='0%';$('ratebar').style.width='0';restart.classList.add('hidden');aim.classList.remove('hidden');status.textContent='Chọn góc sút!'};
+ sound.onclick=()=>{muted=!muted;sound.textContent=muted?'🔇 Âm thanh: Tắt':'🔊 Âm thanh: Bật'};
+})();
+</script>
+</body>
+</html>

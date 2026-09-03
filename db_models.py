@@ -243,3 +243,18 @@ class ChallengeSeason(db.Model):
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "ends_at": self.ends_at.isoformat() if self.ends_at else None,
         }
+
+
+class PenaltyGameScore(db.Model):
+    """Một ván Penalty Shootout đã gửi điểm từ client.
+    XP của game được cộng vào cùng total_xp với Prediction Challenge.
+    """
+    __tablename__ = "penalty_game_scores"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    goals = db.Column(db.Integer, nullable=False)
+    xp = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    user = db.relationship("User", backref=db.backref("penalty_scores", lazy="dynamic"))

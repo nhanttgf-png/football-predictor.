@@ -26,7 +26,7 @@ from flask import Flask, render_template, request, jsonify, session
 from flask_login import current_user, login_required
 
 from extensions import db, login_manager
-from db_models import User, Prediction, ChallengeMatch, ChallengeGuess, ChallengeSeason
+from db_models import User, Prediction, ChallengeMatch, ChallengeGuess, ChallengeSeason, PenaltyGameScore
 from auth import auth_bp
 from payments import payments_bp
 from admin import admin_bp
@@ -839,6 +839,51 @@ def api_challenge_history():
         out.append(d)
     return jsonify({"rows": out, "total_xp": current_user.total_xp})
 
+
+
+@app.route("/game")
+def game():
+    """Mini game penalty shootout — gameplay chạy phía client; điểm XP gửi về server."""
+    return render_template("game.html")
+
+
+@app.route("/api/game/penalty/score", methods=["POST"])
+@login_required
+def api_penalty_score():
+    """Nhận kết quả một ván penalty và cộng XP vào leaderboard hiện tại.
+    Mỗi tài khoản tối đa 10 ván/ngày để hạn chế spam điểm.
+    """
+    data = request.get_json(silent=True) or {}
+    try:
+        goals = int(data.get("goals"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Điểm không hợp lệ."}), 400
+
+    if goals < 0 or goals > 5:
+        return jsonify({"error": "Điểm phải từ 0 đến 5."}), 400
+
+    today = date.today()
+    games_today = PenaltyGameScore.query.filter(
+        PenaltyGameScore.user_id == current_user.id,
+        db.func.date(PenaltyGameScore.created_at) == today.isoformat(),
+    ).count()
+    if games_today >= 10:
+        return jsonify({"error": "Bạn đã đạt giới hạn 10 ván penalty hôm nay."}), 429
+
+    xp_by_goals = {0: 0, 1: 5, 2: 10, 3: 20, 4: 35, 5: 50}
+    xp = xp_by_goals[goals]
+    score = PenaltyGameScore(user_id=current_user.id, goals=goals, xp=xp)
+    current_user.total_xp += xp
+    db.session.add(score)
+    db.session.commit()
+
+    return jsonify({
+        "message": f"Bạn nhận +{xp} XP!",
+        "goals": goals,
+        "xp": xp,
+        "total_xp": current_user.total_xp,
+        "games_left_today": max(0, 9 - games_today),
+    })
 
 @app.route("/health")
 def health():
