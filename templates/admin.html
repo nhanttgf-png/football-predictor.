@@ -66,9 +66,32 @@
   }
   #msg.ok { display: block; background: rgba(46, 160, 67, 0.15); color: #7ee08a; }
   #msg.err { display: block; background: rgba(225, 82, 61, 0.15); color: #ff9b8a; }
+  .card + .card { margin-top: 20px; }
+  select {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(245, 242, 232, 0.25);
+    background: rgba(245, 242, 232, 0.06);
+    color: var(--chalk);
+    font-size: 0.95rem;
+  }
+  #btn-challenge-create, #btn-challenge-settle { background: var(--amber); color: var(--ink); }
+  #btn-challenge-refresh { background: transparent; color: var(--chalk); border: 1px solid rgba(245, 242, 232, 0.3); }
+  .challenge-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(245, 242, 232, 0.1);
+    font-size: 0.82rem;
+  }
+  .challenge-row:last-child { border-bottom: none; }
+  .challenge-row-status { color: var(--chalk-dim); }
 </style>
 </head>
 <body>
+  <div style="width:100%; max-width:420px;">
   <div class="card">
     <h1>Cấp Premium thủ công</h1>
     <p class="desc">Dùng sau khi bạn đã tự kiểm tra sao kê ngân hàng thấy khách đã chuyển khoản đúng nội dung.</p>
@@ -85,6 +108,49 @@
     </div>
 
     <p id="msg"></p>
+  </div>
+
+  <div class="card">
+    <h1>Thử thách dự đoán</h1>
+    <p class="desc">Mật khẩu admin dùng chung ở ô phía trên. Tạo trận thử thách mới (AI tự tính tỷ lệ), rồi chốt sổ với kết quả thật khi trận đấu kết thúc để cộng XP cho người chơi đoán đúng.</p>
+
+    <label for="ch-league">Giải đấu (mã, vd premier-league)</label>
+    <input id="ch-league" type="text" value="premier-league" autocomplete="off">
+
+    <label for="ch-home">Đội nhà</label>
+    <input id="ch-home" type="text" placeholder="Arsenal" autocomplete="off">
+
+    <label for="ch-away">Đội khách</label>
+    <input id="ch-away" type="text" placeholder="Chelsea" autocomplete="off">
+
+    <div class="actions">
+      <button id="btn-challenge-create">Tạo trận thử thách</button>
+    </div>
+
+    <p id="ch-create-msg"></p>
+
+    <label for="ch-match-select" style="margin-top:22px;">Chốt sổ trận</label>
+    <select id="ch-match-select"><option value="">Đang tải danh sách trận...</option></select>
+
+    <label for="ch-result">Kết quả thật</label>
+    <select id="ch-result">
+      <option value="nha">Đội nhà thắng</option>
+      <option value="hoa">Hòa</option>
+      <option value="khach">Đội khách thắng</option>
+    </select>
+
+    <label for="ch-score">Tỷ số (không bắt buộc)</label>
+    <input id="ch-score" type="text" placeholder="2-1" autocomplete="off">
+
+    <div class="actions">
+      <button id="btn-challenge-settle">Chốt sổ + cộng XP</button>
+      <button id="btn-challenge-refresh">Tải lại danh sách</button>
+    </div>
+
+    <p id="ch-settle-msg"></p>
+
+    <div id="ch-list" style="margin-top:16px;"></div>
+  </div>
   </div>
 
   <script>
@@ -128,6 +194,109 @@
 
     document.getElementById("btn-grant").addEventListener("click", () => call("/api/admin/grant-premium"));
     document.getElementById("btn-revoke").addEventListener("click", () => call("/api/admin/revoke-premium"));
+
+    // ---- Thử thách dự đoán ----
+    const chLeague = document.getElementById("ch-league");
+    const chHome = document.getElementById("ch-home");
+    const chAway = document.getElementById("ch-away");
+    const chCreateMsg = document.getElementById("ch-create-msg");
+    const chMatchSelect = document.getElementById("ch-match-select");
+    const chResult = document.getElementById("ch-result");
+    const chScore = document.getElementById("ch-score");
+    const chSettleMsg = document.getElementById("ch-settle-msg");
+    const chList = document.getElementById("ch-list");
+
+    function showChMsg(el, text, ok) {
+      el.textContent = text;
+      el.className = ok ? "ok" : "err";
+    }
+
+    async function adminFetch(endpoint, body) {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Admin-Token": tokenInput.value,
+        },
+        body: JSON.stringify(body || {}),
+      });
+      const data = await res.json();
+      return { ok: res.ok, data };
+    }
+
+    function outcomeLabel(result, doiNha, doiKhach) {
+      if (result === "nha") return `${doiNha} thắng`;
+      if (result === "khach") return `${doiKhach} thắng`;
+      if (result === "hoa") return "Hòa";
+      return "—";
+    }
+
+    async function loadChallengeList() {
+      try {
+        const res = await fetch("/api/admin/challenge/list", {
+          headers: { "X-Admin-Token": tokenInput.value },
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          chMatchSelect.innerHTML = `<option value="">${data.error || "Không tải được danh sách."}</option>`;
+          chList.innerHTML = "";
+          return;
+        }
+
+        const open = data.rows.filter((m) => !m.ket_qua_thuc_te);
+        chMatchSelect.innerHTML = open.length
+          ? open.map((m) => `<option value="${m.id}">#${m.id} · ${m.doi_nha} vs ${m.doi_khach} (${m.so_luot_doan} lượt đoán)</option>`).join("")
+          : `<option value="">Không có trận nào đang mở</option>`;
+
+        chList.innerHTML = data.rows.map((m) => `
+          <div class="challenge-row">
+            <span>#${m.id} ${m.doi_nha} vs ${m.doi_khach}</span>
+            <span class="challenge-row-status">${m.ket_qua_thuc_te
+              ? "✅ " + outcomeLabel(m.ket_qua_thuc_te, m.doi_nha, m.doi_khach)
+              : `${m.so_luot_doan} lượt đoán · đang mở`}</span>
+          </div>`).join("");
+      } catch (err) {
+        chList.innerHTML = "";
+      }
+    }
+
+    document.getElementById("btn-challenge-create").addEventListener("click", async () => {
+      const doi_nha = chHome.value.trim();
+      const doi_khach = chAway.value.trim();
+      if (!doi_nha || !doi_khach) {
+        showChMsg(chCreateMsg, "Nhập đủ tên 2 đội trước đã.", false);
+        return;
+      }
+      const { ok, data } = await adminFetch("/api/admin/challenge/create", {
+        league: chLeague.value.trim() || "premier-league",
+        doi_nha, doi_khach,
+      });
+      showChMsg(chCreateMsg, data.message || data.error || "Có lỗi xảy ra.", ok);
+      if (ok) { chHome.value = ""; chAway.value = ""; loadChallengeList(); }
+    });
+
+    document.getElementById("btn-challenge-settle").addEventListener("click", async () => {
+      const match_id = Number(chMatchSelect.value);
+      if (!match_id) {
+        showChMsg(chSettleMsg, "Chọn 1 trận để chốt sổ trước đã.", false);
+        return;
+      }
+      const { ok, data } = await adminFetch("/api/admin/challenge/settle", {
+        match_id,
+        ket_qua_thuc_te: chResult.value,
+        ty_so_thuc_te: chScore.value.trim(),
+      });
+      showChMsg(
+        chSettleMsg,
+        ok ? `${data.message} (${data.so_dung}/${data.so_luot_doan} đoán đúng, +${data.tong_diem_da_cong} XP tổng)` : (data.error || "Có lỗi xảy ra."),
+        ok,
+      );
+      if (ok) { chScore.value = ""; loadChallengeList(); }
+    });
+
+    document.getElementById("btn-challenge-refresh").addEventListener("click", loadChallengeList);
+
+    loadChallengeList();
   </script>
 </body>
 </html>

@@ -18,6 +18,15 @@ const playersPositionFilter = document.getElementById("players-position-filter")
 const playersSort = document.getElementById("players-sort");
 const playersTbody = document.getElementById("players-tbody");
 
+// ---- Tab Thử thách dự đoán ----
+const tabChallenge = document.getElementById("tab-challenge");
+const challengeView = document.getElementById("challenge-view");
+const challengeError = document.getElementById("challenge-error");
+const challengeNote = document.getElementById("challenge-note");
+const challengeMatches = document.getElementById("challenge-matches");
+const challengeLbTbody = document.getElementById("challenge-lb-tbody");
+const challengeMyRank = document.getElementById("challenge-my-rank");
+
 // ---- Tab Lịch sử dự đoán ----
 const tabHistory = document.getElementById("tab-history");
 const historyView = document.getElementById("history-view");
@@ -153,6 +162,8 @@ function renderAccount() {
     // Nếu khách đăng xuất trong lúc đang xem tab lịch sử, quay về tab dự đoán.
     if (!historyView.hidden) switchToPredictView();
   }
+  // Đăng nhập/đăng xuất có thể đổi trạng thái nút đoán ở tab Thử thách.
+  if (!challengeView.hidden) loadChallenge();
 }
 
 async function loadMe() {
@@ -522,6 +533,152 @@ async function loadHistory() {
   }
 }
 
+// ==================== THỬ THÁCH DỰ ĐOÁN (Prediction Challenge) ====================
+
+const CHALLENGE_LABELS = { nha: "Đội nhà thắng", hoa: "Hòa", khach: "Đội khách thắng" };
+
+function challengeOutcomeLabel(result, doiNha, doiKhach) {
+  if (result === "nha") return `${doiNha} thắng`;
+  if (result === "khach") return `${doiKhach} thắng`;
+  return "Hòa";
+}
+
+function challengeMatchCardHtml(m) {
+  const settled = !!m.ket_qua_thuc_te;
+  const myGuess = m.my_guess;
+
+  let bodyHtml;
+  if (settled) {
+    const correct = myGuess && myGuess === m.ket_qua_thuc_te;
+    bodyHtml = `
+      <div class="challenge-reveal">
+        <div class="challenge-reveal-row">
+          <span class="challenge-reveal-label">Kết quả</span>
+          <strong>${challengeOutcomeLabel(m.ket_qua_thuc_te, m.doi_nha, m.doi_khach)}${m.ty_so_thuc_te ? " · " + m.ty_so_thuc_te : ""}</strong>
+        </div>
+        <div class="challenge-reveal-row">
+          <span class="challenge-reveal-label">Bạn đoán</span>
+          <span>${myGuess ? challengeOutcomeLabel(myGuess, m.doi_nha, m.doi_khach) + (correct ? " ✅" : " ❌") : "Bạn chưa đoán trận này"}</span>
+        </div>
+        <div class="challenge-reveal-row">
+          <span class="challenge-reveal-label">AI đoán</span>
+          <span>${challengeOutcomeLabel(m.ai_du_doan, m.doi_nha, m.doi_khach)}${m.ai_du_doan === m.ket_qua_thuc_te ? " ✅" : " ❌"}</span>
+        </div>
+        ${myGuess ? `<p class="challenge-points">${correct ? `+${m.diem ?? ""} XP 🎉` : "Chưa có điểm lần này — thử trận sau nhé!"}</p>` : ""}
+      </div>`;
+  } else if (myGuess) {
+    bodyHtml = `
+      <div class="challenge-reveal">
+        <p class="challenge-waiting">Bạn đã đoán: <strong>${challengeOutcomeLabel(myGuess, m.doi_nha, m.doi_khach)}</strong>. Kết quả sẽ hiện ở đây khi trận đấu kết thúc.</p>
+      </div>`;
+  } else {
+    bodyHtml = `
+      <div class="challenge-guess-buttons">
+        <button type="button" class="challenge-guess-btn" data-match="${m.id}" data-guess="nha">${m.doi_nha}<br>thắng</button>
+        <button type="button" class="challenge-guess-btn challenge-guess-draw" data-match="${m.id}" data-guess="hoa">Hòa</button>
+        <button type="button" class="challenge-guess-btn" data-match="${m.id}" data-guess="khach">${m.doi_khach}<br>thắng</button>
+      </div>`;
+  }
+
+  return `
+    <article class="challenge-card">
+      <p class="challenge-card-league">${m.league || ""}${settled ? " · Đã kết thúc" : ""}</p>
+      <h3 class="challenge-card-teams">${m.doi_nha} <span class="challenge-vs">vs</span> ${m.doi_khach}</h3>
+      ${bodyHtml}
+    </article>`;
+}
+
+async function submitChallengeGuess(matchId, duDoan) {
+  challengeError.hidden = true;
+  if (!currentUser) {
+    openAuthModal("login");
+    return;
+  }
+  try {
+    const res = await fetch("/api/challenge/guess", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ match_id: matchId, du_doan: duDoan }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Không ghi nhận được lượt đoán.");
+    loadChallenge();
+  } catch (err) {
+    challengeError.textContent = err.message || "Có lỗi xảy ra, vui lòng thử lại.";
+    challengeError.hidden = false;
+  }
+}
+
+async function loadChallenge() {
+  challengeError.hidden = true;
+  challengeNote.textContent = "Đang tải thử thách hôm nay...";
+  challengeMatches.innerHTML = "";
+  try {
+    const res = await fetch("/api/challenge/current");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Không tải được thử thách.");
+
+    let html = "";
+    if (!data.matches || !data.matches.length) {
+      challengeNote.textContent = "Chưa có trận thử thách nào đang mở. Quay lại sau nhé!";
+    } else {
+      challengeNote.textContent = currentUser
+        ? "Đoán kết quả trước khi trận đấu diễn ra để ghi điểm XP!"
+        : "Đăng nhập để tham gia đoán và tích lũy XP.";
+      html += data.matches.map(challengeMatchCardHtml).join("");
+    }
+
+    // Vài trận đã chốt sổ gần nhất bạn từng đoán, để xem lại kết quả + điểm.
+    if (currentUser) {
+      try {
+        const histRes = await fetch("/api/challenge/history");
+        const hist = await histRes.json();
+        if (histRes.ok && hist.rows && hist.rows.length) {
+          html += hist.rows.slice(0, 3).map(challengeMatchCardHtml).join("");
+        }
+      } catch (e) {
+        // không chặn phần chính nếu lịch sử lỗi
+      }
+    }
+
+    challengeMatches.innerHTML = html;
+    challengeMatches.querySelectorAll(".challenge-guess-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        submitChallengeGuess(Number(btn.dataset.match), btn.dataset.guess);
+      });
+    });
+  } catch (err) {
+    challengeError.textContent = err.message || "Có lỗi xảy ra khi tải thử thách.";
+    challengeError.hidden = false;
+    challengeNote.textContent = "";
+  }
+
+  loadChallengeLeaderboard();
+}
+
+async function loadChallengeLeaderboard() {
+  try {
+    const res = await fetch("/api/challenge/leaderboard");
+    const data = await res.json();
+    if (!res.ok) return;
+
+    if (!data.rows || !data.rows.length) {
+      challengeLbTbody.innerHTML = `<tr><td colspan="3">Chưa có ai ghi điểm — hãy là người đầu tiên!</td></tr>`;
+    } else {
+      challengeLbTbody.innerHTML = data.rows.map((r) => `
+        <tr>
+          <td>${r.rank}</td>
+          <td class="lb-col-team">${r.email}</td>
+          <td>${r.total_xp}</td>
+        </tr>`).join("");
+    }
+
+    challengeMyRank.textContent = data.me ? `Xếp hạng của bạn: #${data.me.rank} (${data.me.total_xp} XP)` : "";
+  } catch (err) {
+    // bảng phụ, lỗi thì bỏ qua không chặn phần đoán trận
+  }
+}
+
 async function loadLeagues() {
   try {
     const res = await fetch("/api/leagues");
@@ -564,45 +721,52 @@ let leaderboardSortLoaded = false;
 let leaderboardSubview = "season"; // "season" | "alltime"
 
 function setActiveTab(activeTab) {
-  for (const tab of [tabPredict, tabLeaderboard, tabPlayers, tabHistory]) {
+  for (const tab of [tabPredict, tabLeaderboard, tabPlayers, tabChallenge, tabHistory]) {
     const isActive = tab === activeTab;
     tab.classList.toggle("view-tab-active", isActive);
     tab.setAttribute("aria-selected", isActive ? "true" : "false");
   }
 }
 
-function switchToPredictView() {
-  setActiveTab(tabPredict);
-  predictView.hidden = false;
+function hideAllViews() {
+  predictView.hidden = true;
   leaderboardView.hidden = true;
   playersView.hidden = true;
+  challengeView.hidden = true;
   historyView.hidden = true;
+}
+
+function switchToPredictView() {
+  setActiveTab(tabPredict);
+  hideAllViews();
+  predictView.hidden = false;
 }
 
 function switchToLeaderboardView() {
   setActiveTab(tabLeaderboard);
+  hideAllViews();
   leaderboardView.hidden = false;
-  predictView.hidden = true;
-  playersView.hidden = true;
-  historyView.hidden = true;
   loadCurrentLeaderboardView();
 }
 
 function switchToPlayersView() {
   setActiveTab(tabPlayers);
+  hideAllViews();
   playersView.hidden = false;
-  predictView.hidden = true;
-  leaderboardView.hidden = true;
-  historyView.hidden = true;
   loadPlayers();
+}
+
+function switchToChallengeView() {
+  setActiveTab(tabChallenge);
+  hideAllViews();
+  challengeView.hidden = false;
+  loadChallenge();
 }
 
 function switchToHistoryView() {
   setActiveTab(tabHistory);
+  hideAllViews();
   historyView.hidden = false;
-  predictView.hidden = true;
-  leaderboardView.hidden = true;
-  playersView.hidden = true;
   loadHistory();
 }
 
@@ -764,6 +928,7 @@ function renderLeaderboard(rows) {
 tabPredict.addEventListener("click", switchToPredictView);
 tabLeaderboard.addEventListener("click", switchToLeaderboardView);
 tabPlayers.addEventListener("click", switchToPlayersView);
+tabChallenge.addEventListener("click", switchToChallengeView);
 tabHistory.addEventListener("click", switchToHistoryView);
 subtabSeason.addEventListener("click", switchToSeasonSubview);
 subtabAlltime.addEventListener("click", switchToAlltimeSubview);

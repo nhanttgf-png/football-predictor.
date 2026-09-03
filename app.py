@@ -26,7 +26,7 @@ from flask import Flask, render_template, request, jsonify, session
 from flask_login import current_user, login_required
 
 from extensions import db, login_manager
-from db_models import User, Prediction
+from db_models import User, Prediction, ChallengeMatch, ChallengeGuess
 from auth import auth_bp
 from payments import payments_bp
 from admin import admin_bp
@@ -86,8 +86,38 @@ def unauthorized():
     return jsonify({"error": "Vui lòng đăng nhập trước."}), 401
 
 
+def _run_startup_migrations():
+    """
+    Tự thêm các CỘT MỚI vào bảng đã tồn tại từ trước, mỗi khi app khởi động.
+
+    Lý do cần cái này: db.create_all() (gọi ngay dưới) chỉ tạo BẢNG MỚI
+    (vd challenge_matches, challenge_guesses) -- nó KHÔNG tự thêm cột mới
+    vào 1 bảng đã tồn tại sẵn (vd thêm users.total_xp vào bảng "users" đã
+    có dữ liệu) -> nếu không có hàm này, app sẽ crash với lỗi kiểu
+    "no such column: users.total_xp" ngay khi vừa deploy code mới lên 1
+    server đã có app.db từ trước.
+
+    Chạy tự động ở MỌI lần khởi động (kể cả trên Render sau mỗi lần push
+    GitHub) nên bạn không cần SSH vào server để chạy migration thủ công.
+    An toàn để chạy lại nhiều lần: bỏ qua ngay nếu cột đã tồn tại rồi.
+    """
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(db.engine)
+    if "users" not in inspector.get_table_names():
+        return  # bảng users chưa từng tồn tại -> create_all() ở trên đã tạo đủ cột
+
+    existing_cols = {c["name"] for c in inspector.get_columns("users")}
+    if "total_xp" not in existing_cols:
+        logger.info("Đang tự thêm cột users.total_xp còn thiếu (migration)...")
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN total_xp INTEGER NOT NULL DEFAULT 0"))
+        logger.info("Đã thêm cột users.total_xp.")
+
+
 with app.app_context():
     db.create_all()
+    _run_startup_migrations()
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(payments_bp)
@@ -146,6 +176,20 @@ def api_premium_qr():
 # (db_models.User), bền và đúng khi chạy nhiều worker.
 FREE_DAILY_LIMIT = 3
 _guest_usage_store = {}  # { session_uid: {"date": "YYYY-MM-DD", "count": int} }
+
+# ---- Điểm XP cho tính năng "Thử thách dự đoán" (Prediction Challenge) ----
+# Đoán đúng kèo hòa khó hơn (xác suất thấp hơn) nên được thưởng cao hơn.
+CHALLENGE_POINTS = {"nha": 10, "khach": 10, "hoa": 15}
+
+
+def _mask_email(email: str) -> str:
+    """Che bớt email để hiển thị công khai trên bảng xếp hạng XP,
+    vd "nguyen@gmail.com" -> "ng***@gmail.com"."""
+    local, _, domain = (email or "").partition("@")
+    if not local:
+        return "ẩn danh"
+    visible = local[:2]
+    return f"{visible}***@{domain}" if domain else f"{visible}***"
 
 
 def _get_guest_id() -> str:
@@ -686,6 +730,108 @@ def api_history():
             "ty_le_chinh_xac": ty_le_chinh_xac,
         },
     })
+
+
+@app.route("/api/challenge/current")
+def api_challenge_current():
+    """Danh sách các trận thử thách đang mở (chưa chốt sổ), kèm lượt đoán
+    của người dùng hiện tại cho từng trận nếu đã đăng nhập và đã đoán.
+    Trả về mảng (không chỉ 1 trận) để sau này hỗ trợ nhiều trận/ngày."""
+    matches = (
+        ChallengeMatch.query.filter_by(is_active=True, ket_qua_thuc_te=None)
+        .order_by(ChallengeMatch.created_at.desc())
+        .all()
+    )
+    my_guesses = {}
+    if current_user.is_authenticated and matches:
+        rows = ChallengeGuess.query.filter(
+            ChallengeGuess.user_id == current_user.id,
+            ChallengeGuess.match_id.in_([m.id for m in matches]),
+        ).all()
+        my_guesses = {r.match_id: r.du_doan for r in rows}
+
+    out = []
+    for m in matches:
+        d = m.to_dict()
+        d["my_guess"] = my_guesses.get(m.id)
+        out.append(d)
+
+    return jsonify({
+        "matches": out,
+        "logged_in": current_user.is_authenticated,
+        "points": CHALLENGE_POINTS,
+    })
+
+
+@app.route("/api/challenge/guess", methods=["POST"])
+@login_required
+def api_challenge_guess():
+    """Body JSON: { "match_id": 1, "du_doan": "nha" | "hoa" | "khach" }"""
+    data = request.get_json(silent=True) or {}
+    match_id = data.get("match_id")
+    du_doan = (data.get("du_doan") or "").strip()
+
+    if du_doan not in ("nha", "hoa", "khach"):
+        return jsonify({"error": "Lượt đoán không hợp lệ."}), 400
+
+    match = ChallengeMatch.query.get(match_id)
+    if match is None or not match.is_active:
+        return jsonify({"error": "Không tìm thấy trận thử thách này."}), 404
+    if match.ket_qua_thuc_te is not None:
+        return jsonify({"error": "Trận này đã kết thúc, không thể đoán nữa."}), 409
+
+    existing = ChallengeGuess.query.filter_by(match_id=match.id, user_id=current_user.id).first()
+    if existing is not None:
+        return jsonify({"error": "Bạn đã đoán trận này rồi.", "my_guess": existing.du_doan}), 409
+
+    db.session.add(ChallengeGuess(match_id=match.id, user_id=current_user.id, du_doan=du_doan))
+    db.session.commit()
+
+    return jsonify({
+        "message": "Đã ghi nhận lượt đoán của bạn!",
+        "match": match.to_dict(),
+        "my_guess": du_doan,
+    })
+
+
+@app.route("/api/challenge/leaderboard")
+def api_challenge_leaderboard():
+    """Top người chơi theo tổng XP tích lũy từ thử thách dự đoán.
+    Email được che bớt vì đây là danh sách công khai."""
+    top = User.query.filter(User.total_xp > 0).order_by(User.total_xp.desc()).limit(20).all()
+    rows = [
+        {"rank": i + 1, "email": _mask_email(u.email), "total_xp": u.total_xp}
+        for i, u in enumerate(top)
+    ]
+
+    my_rank = None
+    if current_user.is_authenticated and current_user.total_xp > 0:
+        higher = User.query.filter(User.total_xp > current_user.total_xp).count()
+        my_rank = {"rank": higher + 1, "total_xp": current_user.total_xp}
+
+    return jsonify({"rows": rows, "me": my_rank})
+
+
+@app.route("/api/challenge/history")
+@login_required
+def api_challenge_history():
+    """Các trận thử thách ĐÃ chốt sổ mà người dùng hiện tại từng đoán,
+    kèm số điểm nhận được cho mỗi trận."""
+    rows = (
+        db.session.query(ChallengeGuess, ChallengeMatch)
+        .join(ChallengeMatch, ChallengeGuess.match_id == ChallengeMatch.id)
+        .filter(ChallengeGuess.user_id == current_user.id, ChallengeMatch.ket_qua_thuc_te.isnot(None))
+        .order_by(ChallengeMatch.settled_at.desc())
+        .limit(50)
+        .all()
+    )
+    out = []
+    for guess, match in rows:
+        d = match.to_dict()
+        d["my_guess"] = guess.du_doan
+        d["diem"] = guess.diem
+        out.append(d)
+    return jsonify({"rows": out, "total_xp": current_user.total_xp})
 
 
 @app.route("/health")

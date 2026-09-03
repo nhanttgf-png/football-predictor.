@@ -40,6 +40,11 @@ class User(UserMixin, db.Model):
     free_predictions_used = db.Column(db.Integer, default=0, nullable=False)
     usage_date = db.Column(db.String(10), default=lambda: date.today().isoformat())
 
+    # ---- Thử thách dự đoán (Prediction Challenge): tổng điểm XP cộng dồn
+    # từ các lượt đoán kết quả (thắng/hòa/thua) đúng ở các trận challenge,
+    # xem ChallengeMatch/ChallengeGuess bên dưới. ----
+    total_xp = db.Column(db.Integer, default=0, nullable=False)
+
     # -------- Mật khẩu --------
     def set_password(self, raw_password: str) -> None:
         self.password_hash = generate_password_hash(raw_password)
@@ -118,5 +123,92 @@ class Prediction(db.Model):
             "du_doan": self.du_doan,
             "ket_qua_thuc_te": self.ket_qua_thuc_te,
             "dung": self.dung,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# ==================== THỬ THÁCH DỰ ĐOÁN (Prediction Challenge) ====================
+#
+# Khác với `Prediction` ở trên (log MỌI lượt tra cứu tỷ lệ, dùng cho lịch
+# sử cá nhân + đo độ chính xác AI), 2 bảng dưới đây phục vụ tính năng
+# "chơi" riêng: admin chọn ra 1 (hoặc vài) trận "thử thách", người dùng
+# đoán TRƯỚC kết quả (thắng/hòa/thua) — không xem trước dự đoán AI có sẵn
+# nào khác — rồi khi trận đấu kết thúc ngoài đời, admin nhập kết quả thật
+# vào để "chốt sổ" (settle), hệ thống tự cộng XP cho ai đoán đúng.
+#
+# Vì app này KHÔNG có nguồn lịch thi đấu/kết quả trực tiếp (dữ liệu chỉ
+# refresh khi chạy train_offline.py thủ công), việc "trận đấu kết thúc"
+# ở đây được XÁC NHẬN THỦ CÔNG bởi admin qua /api/admin/challenge/settle,
+# thay vì tự động ngay khi trọng tài thổi còi.
+
+class ChallengeMatch(db.Model):
+    __tablename__ = "challenge_matches"
+
+    id = db.Column(db.Integer, primary_key=True)
+    league = db.Column(db.String(50), nullable=False)
+    doi_nha = db.Column(db.String(120), nullable=False)
+    doi_khach = db.Column(db.String(120), nullable=False)
+
+    # Dự đoán của AI tại thời điểm tạo trận thử thách (để so sánh với lượt
+    # đoán của người dùng) -- không đổi kể cả khi model được retrain sau đó.
+    ai_thang_nha = db.Column(db.Float, nullable=True)
+    ai_hoa = db.Column(db.Float, nullable=True)
+    ai_thang_khach = db.Column(db.Float, nullable=True)
+    ai_du_doan = db.Column(db.String(10), nullable=True)  # "nha" | "hoa" | "khach"
+
+    # "nha" | "hoa" | "khach" | None (chưa có kết quả thật / chưa chốt sổ)
+    ket_qua_thuc_te = db.Column(db.String(10), nullable=True)
+    ty_so_thuc_te = db.Column(db.String(10), nullable=True)  # vd "2-1", chỉ để hiển thị
+
+    is_active = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    settled_at = db.Column(db.DateTime, nullable=True)
+
+    guesses = db.relationship("ChallengeGuess", backref="match", lazy="dynamic",
+                               cascade="all, delete-orphan")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "league": self.league,
+            "doi_nha": self.doi_nha,
+            "doi_khach": self.doi_khach,
+            "ai_thang_nha": self.ai_thang_nha,
+            "ai_hoa": self.ai_hoa,
+            "ai_thang_khach": self.ai_thang_khach,
+            "ai_du_doan": self.ai_du_doan,
+            "ket_qua_thuc_te": self.ket_qua_thuc_te,
+            "ty_so_thuc_te": self.ty_so_thuc_te,
+            "is_active": self.is_active,
+            "so_luot_doan": self.guesses.count(),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class ChallengeGuess(db.Model):
+    """1 lượt đoán kết quả (thắng/hòa/thua) của 1 tài khoản cho 1 trận
+    thử thách. Mỗi tài khoản chỉ được đoán 1 lần / trận (unique constraint)."""
+    __tablename__ = "challenge_guesses"
+    __table_args__ = (
+        db.UniqueConstraint("match_id", "user_id", name="uq_challenge_guess_user_match"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    match_id = db.Column(db.Integer, db.ForeignKey("challenge_matches.id"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+
+    # "nha" | "hoa" | "khach" -- lượt đoán của người dùng
+    du_doan = db.Column(db.String(10), nullable=False)
+    # None cho tới khi trận được chốt sổ; sau đó là số XP nhận được (0 nếu đoán sai)
+    diem = db.Column(db.Integer, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "match_id": self.match_id,
+            "du_doan": self.du_doan,
+            "diem": self.diem,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

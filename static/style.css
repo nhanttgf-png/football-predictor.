@@ -1055,3 +1055,128 @@ body {
     transition: none;
   }
 }
+
+/* ==================== TAB THỬ THÁCH DỰ ĐOÁN ==================== */
+
+.challenge-card {
+  background: rgba(245, 242, 232, 0.05);
+  border: 1px solid rgba(245, 242, 232, 0.14);
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 14px;
+}
+
+.challenge-card-league {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--chalk-dim);
+}
+
+.challenge-card-teams {
+  margin: 0 0 16px;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+}
+
+.challenge-vs {
+  color: var(--amber);
+  font-size: 0.85rem;
+  margin: 0 6px;
+}
+
+.challenge-guess-buttons {
+  display: grid;
+  grid-template-columns: 1fr 0.7fr 1fr;
+  gap: 10px;
+}
+
+.challenge-guess-btn {
+  background: rgba(245, 242, 232, 0.08);
+  border: 1px solid rgba(245, 242, 232, 0.22);
+  border-radius: 10px;
+  color: var(--chalk);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.85rem;
+  line-height: 1.3;
+  padding: 12px 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.challenge-guess-btn:hover {
+  background: var(--amber);
+  color: var(--ink);
+  border-color: var(--amber);
+  transform: translateY(-1px);
+}
+
+.challenge-guess-draw {
+  color: var(--draw-grey);
+}
+
+.challenge-reveal {
+  background: rgba(245, 242, 232, 0.04);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.challenge-reveal-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 0.9rem;
+}
+
+.challenge-reveal-label {
+  color: var(--chalk-dim);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.challenge-points {
+  margin: 8px 0 0;
+  font-weight: 700;
+  color: var(--amber);
+}
+
+.challenge-waiting {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--chalk-dim);
+}
+
+.challenge-lb-block {
+  margin-top: 24px;
+}
+
+.challenge-lb-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.challenge-lb-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+}
+
+.challenge-my-rank {
+  font-size: 0.85rem;
+  color: var(--amber);
+  font-weight: 600;
+}
+
+@media (max-width: 480px) {
+  .challenge-guess-buttons {
+    grid-template-columns: 1fr;
+  }
+}

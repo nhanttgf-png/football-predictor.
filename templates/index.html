@@ -59,8 +59,35 @@
       <button type="button" id="tab-predict" class="view-tab view-tab-active" role="tab" aria-selected="true">Dự đoán trận đấu</button>
       <button type="button" id="tab-leaderboard" class="view-tab" role="tab" aria-selected="false">Bảng xếp hạng</button>
       <button type="button" id="tab-players" class="view-tab" role="tab" aria-selected="false">Cầu thủ</button>
+      <button type="button" id="tab-challenge" class="view-tab" role="tab" aria-selected="false">🎮 Thử thách</button>
       <button type="button" id="tab-history" class="view-tab" role="tab" aria-selected="false" hidden>Lịch sử dự đoán</button>
     </div>
+
+    <section id="challenge-view" class="leaderboard-view" hidden aria-label="Thử thách dự đoán">
+      <p id="challenge-error" class="error-msg" hidden></p>
+      <p id="challenge-note" class="leaderboard-note"></p>
+
+      <div id="challenge-matches"></div>
+
+      <div class="challenge-lb-block">
+        <div class="challenge-lb-head">
+          <h2 class="challenge-lb-title">🏆 Bảng xếp hạng XP</h2>
+          <span id="challenge-my-rank" class="challenge-my-rank"></span>
+        </div>
+        <div class="leaderboard-table-wrap">
+          <table class="leaderboard-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th class="lb-col-team">Người chơi</th>
+                <th>XP</th>
+              </tr>
+            </thead>
+            <tbody id="challenge-lb-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
 
     <section id="leaderboard-view" class="leaderboard-view" hidden aria-label="Bảng xếp hạng">
       <div class="lb-subtabs" role="tablist">
