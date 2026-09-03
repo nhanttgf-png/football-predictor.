@@ -26,6 +26,7 @@ const challengeNote = document.getElementById("challenge-note");
 const challengeMatches = document.getElementById("challenge-matches");
 const challengeLbTbody = document.getElementById("challenge-lb-tbody");
 const challengeMyRank = document.getElementById("challenge-my-rank");
+const challengeSeasonNote = document.getElementById("challenge-season-note");
 
 // ---- Tab Lịch sử dự đoán ----
 const tabHistory = document.getElementById("tab-history");
@@ -674,6 +675,13 @@ async function loadChallengeLeaderboard() {
     }
 
     challengeMyRank.textContent = data.me ? `Xếp hạng của bạn: #${data.me.rank} (${data.me.total_xp} XP)` : "";
+
+    if (data.season && data.season.ends_at) {
+      const end = new Date(data.season.ends_at).toLocaleDateString("vi-VN");
+      challengeSeasonNote.textContent = `Mùa hiện tại kết thúc vào ${end} — điểm sẽ được đặt lại sau đó.`;
+    } else {
+      challengeSeasonNote.textContent = "";
+    }
   } catch (err) {
     // bảng phụ, lỗi thì bỏ qua không chặn phần đoán trận
   }

@@ -114,14 +114,14 @@
     <h1>Thử thách dự đoán</h1>
     <p class="desc">Mật khẩu admin dùng chung ở ô phía trên. Tạo trận thử thách mới (AI tự tính tỷ lệ), rồi chốt sổ với kết quả thật khi trận đấu kết thúc để cộng XP cho người chơi đoán đúng.</p>
 
-    <label for="ch-league">Giải đấu (mã, vd premier-league)</label>
-    <input id="ch-league" type="text" value="premier-league" autocomplete="off">
+    <label for="ch-league">Giải đấu</label>
+    <select id="ch-league"><option value="">Đang tải danh sách giải...</option></select>
 
     <label for="ch-home">Đội nhà</label>
-    <input id="ch-home" type="text" placeholder="Arsenal" autocomplete="off">
+    <select id="ch-home" disabled><option value="">Chọn giải đấu trước...</option></select>
 
     <label for="ch-away">Đội khách</label>
-    <input id="ch-away" type="text" placeholder="Chelsea" autocomplete="off">
+    <select id="ch-away" disabled><option value="">Chọn giải đấu trước...</option></select>
 
     <div class="actions">
       <button id="btn-challenge-create">Tạo trận thử thách</button>
@@ -150,6 +150,23 @@
     <p id="ch-settle-msg"></p>
 
     <div id="ch-list" style="margin-top:16px;"></div>
+  </div>
+
+  <div class="card">
+    <h1>Bảng xếp hạng XP</h1>
+    <p class="desc">Mật khẩu admin dùng chung ở ô trên cùng. "Đặt lại" đưa XP mọi người về 0 và bắt đầu mùa mới. "Gia hạn" chỉ đổi ngày kết thúc, không đụng tới điểm đang có.</p>
+
+    <p id="ch-season-info" class="desc" style="margin-top:0;"></p>
+
+    <label for="ch-season-end">Hạn mùa xếp hạng (bỏ trống = không giới hạn)</label>
+    <input id="ch-season-end" type="date">
+
+    <div class="actions">
+      <button id="btn-season-extend">Gia hạn</button>
+      <button id="btn-season-reset" style="background: var(--danger); color: var(--chalk);">Đặt lại (reset về 0)</button>
+    </div>
+
+    <p id="ch-season-msg"></p>
   </div>
   </div>
 
@@ -231,6 +248,41 @@
       return "—";
     }
 
+    // ---- Chọn giải đấu + đội (dữ liệu thật từ /api/leagues, /api/teams -- endpoint công khai, không cần token) ----
+    async function loadLeagueOptions() {
+      try {
+        const res = await fetch("/api/leagues");
+        const data = await res.json();
+        chLeague.innerHTML = data.leagues.map((l) => `<option value="${l.key}">${l.name}</option>`).join("");
+        chLeague.value = data.default;
+        await loadTeamOptions(chLeague.value);
+      } catch (err) {
+        chLeague.innerHTML = `<option value="">Không tải được danh sách giải</option>`;
+      }
+    }
+
+    async function loadTeamOptions(leagueKey) {
+      chHome.disabled = true;
+      chAway.disabled = true;
+      chHome.innerHTML = `<option value="">Đang tải đội...</option>`;
+      chAway.innerHTML = `<option value="">Đang tải đội...</option>`;
+      try {
+        const res = await fetch(`/api/teams?league=${encodeURIComponent(leagueKey)}`);
+        const data = await res.json();
+        const opts = (data.teams || []).map((t) => `<option value="${t}">${t}</option>`).join("");
+        chHome.innerHTML = opts;
+        chAway.innerHTML = opts;
+        chHome.disabled = false;
+        chAway.disabled = false;
+      } catch (err) {
+        chHome.innerHTML = `<option value="">Không tải được đội</option>`;
+        chAway.innerHTML = `<option value="">Không tải được đội</option>`;
+      }
+    }
+
+    chLeague.addEventListener("change", () => loadTeamOptions(chLeague.value));
+    loadLeagueOptions();
+
     async function loadChallengeList() {
       try {
         const res = await fetch("/api/admin/challenge/list", {
@@ -261,18 +313,22 @@
     }
 
     document.getElementById("btn-challenge-create").addEventListener("click", async () => {
-      const doi_nha = chHome.value.trim();
-      const doi_khach = chAway.value.trim();
+      const doi_nha = chHome.value;
+      const doi_khach = chAway.value;
       if (!doi_nha || !doi_khach) {
-        showChMsg(chCreateMsg, "Nhập đủ tên 2 đội trước đã.", false);
+        showChMsg(chCreateMsg, "Chọn đủ đội nhà và đội khách trước đã.", false);
+        return;
+      }
+      if (doi_nha === doi_khach) {
+        showChMsg(chCreateMsg, "Hai đội phải khác nhau.", false);
         return;
       }
       const { ok, data } = await adminFetch("/api/admin/challenge/create", {
-        league: chLeague.value.trim() || "premier-league",
+        league: chLeague.value,
         doi_nha, doi_khach,
       });
       showChMsg(chCreateMsg, data.message || data.error || "Có lỗi xảy ra.", ok);
-      if (ok) { chHome.value = ""; chAway.value = ""; loadChallengeList(); }
+      if (ok) loadChallengeList();
     });
 
     document.getElementById("btn-challenge-settle").addEventListener("click", async () => {
@@ -297,6 +353,50 @@
     document.getElementById("btn-challenge-refresh").addEventListener("click", loadChallengeList);
 
     loadChallengeList();
+
+    // ---- Bảng xếp hạng XP (mùa hiện tại: reset / gia hạn) ----
+    const chSeasonInfo = document.getElementById("ch-season-info");
+    const chSeasonEnd = document.getElementById("ch-season-end");
+    const chSeasonMsg = document.getElementById("ch-season-msg");
+
+    function renderSeason(season) {
+      if (!season) return;
+      const start = season.started_at ? new Date(season.started_at).toLocaleDateString("vi-VN") : "—";
+      const end = season.ends_at ? new Date(season.ends_at).toLocaleDateString("vi-VN") : "Không giới hạn";
+      chSeasonInfo.textContent = `Mùa hiện tại: bắt đầu ${start} · hạn: ${end}`;
+      chSeasonEnd.value = season.ends_at ? season.ends_at.slice(0, 10) : "";
+    }
+
+    async function loadSeason() {
+      try {
+        const res = await fetch("/api/challenge/leaderboard");
+        const data = await res.json();
+        if (res.ok) renderSeason(data.season);
+      } catch (err) {
+        chSeasonInfo.textContent = "";
+      }
+    }
+
+    document.getElementById("btn-season-extend").addEventListener("click", async () => {
+      const { ok, data } = await adminFetch("/api/admin/challenge/extend-season", {
+        ends_at: chSeasonEnd.value,
+      });
+      showChMsg(chSeasonMsg, data.message || data.error || "Có lỗi xảy ra.", ok);
+      if (ok) renderSeason(data.season);
+    });
+
+    document.getElementById("btn-season-reset").addEventListener("click", async () => {
+      if (!confirm("Chắc chắn đặt lại bảng xếp hạng? Toàn bộ XP hiện tại của mọi người sẽ về 0 (không thể hoàn tác).")) {
+        return;
+      }
+      const { ok, data } = await adminFetch("/api/admin/challenge/reset-leaderboard", {
+        ends_at: chSeasonEnd.value,
+      });
+      showChMsg(chSeasonMsg, data.message || data.error || "Có lỗi xảy ra.", ok);
+      if (ok) renderSeason(data.season);
+    });
+
+    loadSeason();
   </script>
 </body>
 </html>

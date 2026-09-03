@@ -26,7 +26,7 @@ from flask import Flask, render_template, request, jsonify, session
 from flask_login import current_user, login_required
 
 from extensions import db, login_manager
-from db_models import User, Prediction, ChallengeMatch, ChallengeGuess
+from db_models import User, Prediction, ChallengeMatch, ChallengeGuess, ChallengeSeason
 from auth import auth_bp
 from payments import payments_bp
 from admin import admin_bp
@@ -809,7 +809,8 @@ def api_challenge_leaderboard():
         higher = User.query.filter(User.total_xp > current_user.total_xp).count()
         my_rank = {"rank": higher + 1, "total_xp": current_user.total_xp}
 
-    return jsonify({"rows": rows, "me": my_rank})
+    season = ChallengeSeason.current()
+    return jsonify({"rows": rows, "me": my_rank, "season": season.to_dict()})
 
 
 @app.route("/api/challenge/history")

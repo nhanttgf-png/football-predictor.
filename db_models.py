@@ -212,3 +212,34 @@ class ChallengeGuess(db.Model):
             "diem": self.diem,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class ChallengeSeason(db.Model):
+    """1 dòng DUY NHẤT (id=1) lưu thông tin "mùa" hiện tại của bảng xếp
+    hạng XP -- không phải mùa giải bóng đá, mà là 1 chu kỳ tính điểm XP:
+    admin có thể "Reset" (đưa XP mọi người về 0, bắt đầu mùa mới) hoặc
+    "Gia hạn" (chỉ đổi ngày kết thúc, giữ nguyên XP đang có).
+    ends_at = None nghĩa là không giới hạn thời gian (chạy tới khi admin
+    tự tay reset)."""
+    __tablename__ = "challenge_season"
+
+    id = db.Column(db.Integer, primary_key=True)
+    started_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    ends_at = db.Column(db.DateTime, nullable=True)
+
+    @classmethod
+    def current(cls):
+        """Lấy dòng duy nhất (id=1), tự tạo nếu chưa có (mùa đầu tiên,
+        không giới hạn thời gian)."""
+        row = cls.query.get(1)
+        if row is None:
+            row = cls(id=1)
+            db.session.add(row)
+            db.session.commit()
+        return row
+
+    def to_dict(self) -> dict:
+        return {
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "ends_at": self.ends_at.isoformat() if self.ends_at else None,
+        }

@@ -23,7 +23,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, render_template
 
 from extensions import db
-from db_models import User, ChallengeMatch, ChallengeGuess
+from db_models import User, ChallengeMatch, ChallengeGuess, ChallengeSeason
 
 logger = logging.getLogger(__name__)
 
@@ -216,3 +216,70 @@ def challenge_list():
 
     rows = ChallengeMatch.query.order_by(ChallengeMatch.created_at.desc()).limit(30).all()
     return jsonify({"rows": [m.to_dict() for m in rows]})
+
+
+def _parse_end_date(raw: str):
+    """Chuyển chuỗi "YYYY-MM-DD" từ ô input date của FE thành datetime cuối
+    ngày đó (23:59:59) -- để hạn "30/09" vẫn tính hết ngày 30/09.
+    Trả về None nếu chuỗi rỗng (nghĩa là không giới hạn thời gian)."""
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        d = datetime.strptime(raw, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError('Ngày không hợp lệ, cần định dạng "YYYY-MM-DD".')
+    return d.replace(hour=23, minute=59, second=59)
+
+
+@admin_bp.route("/api/admin/challenge/reset-leaderboard", methods=["POST"])
+def challenge_reset_leaderboard():
+    """Đưa XP của TOÀN BỘ người chơi về 0 và bắt đầu 1 "mùa" xếp hạng mới
+    (không đụng tới lịch sử các trận/lượt đoán đã có -- chỉ reset điểm
+    cộng dồn hiển thị trên bảng xếp hạng). Body JSON không bắt buộc:
+    { "ends_at": "2026-09-30" } -- hạn mùa mới, để trống = không giới hạn."""
+    if not _is_authorized():
+        return jsonify({"error": "Sai mật khẩu admin (hoặc server chưa cấu hình ADMIN_TOKEN)."}), 401
+
+    data = request.get_json(silent=True) or {}
+    try:
+        ends_at = _parse_end_date(data.get("ends_at"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    so_nguoi = User.query.filter(User.total_xp > 0).update({User.total_xp: 0}, synchronize_session=False)
+
+    season = ChallengeSeason.current()
+    season.started_at = datetime.utcnow()
+    season.ends_at = ends_at
+    db.session.commit()
+
+    logger.info("Admin đã reset bảng xếp hạng XP (%d tài khoản về 0), hạn mới: %s", so_nguoi, ends_at)
+    return jsonify({
+        "message": f"Đã đặt lại bảng xếp hạng ({so_nguoi} tài khoản về 0 XP). Mùa mới bắt đầu từ hôm nay.",
+        "season": season.to_dict(),
+    })
+
+
+@admin_bp.route("/api/admin/challenge/extend-season", methods=["POST"])
+def challenge_extend_season():
+    """Chỉ đổi hạn kết thúc của mùa xếp hạng hiện tại -- KHÔNG reset XP.
+    Body JSON: { "ends_at": "2026-10-31" } (bỏ trống = bỏ giới hạn thời gian)."""
+    if not _is_authorized():
+        return jsonify({"error": "Sai mật khẩu admin (hoặc server chưa cấu hình ADMIN_TOKEN)."}), 401
+
+    data = request.get_json(silent=True) or {}
+    try:
+        ends_at = _parse_end_date(data.get("ends_at"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    season = ChallengeSeason.current()
+    season.ends_at = ends_at
+    db.session.commit()
+
+    logger.info("Admin đã gia hạn mùa xếp hạng XP tới: %s", ends_at)
+    return jsonify({
+        "message": "Đã cập nhật hạn của mùa xếp hạng hiện tại." if ends_at else "Đã bỏ giới hạn thời gian cho mùa xếp hạng hiện tại.",
+        "season": season.to_dict(),
+    })
